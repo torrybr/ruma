@@ -25,6 +25,7 @@ Improvements:
 - Implement `as_str()` and `AsRef<str>` for `push::PredefinedRuleId`
 - Implement `kind()` for `push::Predefined{*}RuleId`
 - Implement `Clone` for `MatrixToUri` and `MatrixUri`
+- Add unstable support for [MSC3489](https://github.com/matrix-org/matrix-spec-proposals/blob/matthew/location-streaming/proposals/3489-location-streaming.md) Live Location Sharing
 
 # 0.12.1
 
