@@ -85,6 +85,23 @@ event_enum! {
         #[cfg(feature = "unstable-msc3381")]
         #[ruma_enum(ident = UnstablePollEnd)]
         "org.matrix.msc3381.poll.end" => super::poll::unstable_end,
+
+        #[cfg(feature = "unstable-msc3489")]
+        "m.beacon.start" => super::beacon::start,
+        #[cfg(feature = "unstable-msc3489")]
+        #[ruma_enum(ident = UnstableBeaconStart)]
+        "org.matrix.msc3489.beacon.start" => super::beacon::unstable_start,
+        #[cfg(feature = "unstable-msc3489")]
+        "m.beacon.response" => super::beacon::response,
+        #[cfg(feature = "unstable-msc3489")]
+        #[ruma_enum(ident = UnstableBeaconResponse)]
+        "org.matrix.msc3489.beacon.response" => super::beacon::unstable_response,
+        #[cfg(feature = "unstable-msc3489")]
+        "m.beacon.end" => super::beacon::end,
+        #[cfg(feature = "unstable-msc3489")]
+        #[ruma_enum(ident = UnstableBeaconEnd)]
+        "org.matrix.msc3381.beacon.end" => super::beacon::unstable_end,
+
         "m.reaction" => super::reaction,
         "m.room.encrypted" => super::room::encrypted,
         "m.room.message" => super::room::message,
