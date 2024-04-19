@@ -13,7 +13,10 @@ use crate::location::AssetContent;
 /// event. It contains information about a live location sharing event.
 #[derive(Clone, Debug, Deserialize, Serialize, EventContent)]
 #[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
-#[ruma_event(type = "org.matrix.msc3672.beacon", alias = "m.beacon", kind = State, state_key_type = OwnedUserId)]
+// TODO (mre): Should be `kind = State` or `kind = MessageLike`?
+// Reasoning beacon_info is a  state event, but I think beacon is a message like event
+// #[ruma_event(type = "org.matrix.msc3672.beacon", alias = "m.beacon", kind = State, state_key_type = OwnedUserId)]
+#[ruma_event(type = "org.matrix.msc3672.beacon", alias = "m.beacon", kind = MessageLike)]
 pub struct UnstableBeaconStartEventContent {
     /// The description of the location.
     ///

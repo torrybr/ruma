@@ -89,9 +89,11 @@ event_enum! {
         // TODO (mre):
         // #[cfg(feature = "unstable-msc3489")]
         // "m.beacon.start" => super::beacon::start,
+
         #[cfg(feature = "unstable-msc3489")]
         #[ruma_enum(ident = UnstableBeaconStart)]
         "org.matrix.msc3489.beacon.start" => super::beacon::unstable_start,
+
         // #[cfg(feature = "unstable-msc3489")]
         // "m.beacon.response" => super::beacon::response,
         // #[cfg(feature = "unstable-msc3489")]
@@ -322,6 +324,8 @@ impl AnyMessageLikeEventContent {
     /// This is a helper function intended for encryption. There should not be a reason to access
     /// `m.relates_to` without first destructuring an `AnyMessageLikeEventContent` otherwise.
     pub fn relation(&self) -> Option<encrypted::Relation> {
+        #[cfg(feature = "unstable-msc3489")]
+        use super::beacon::unstable_start::UnstableBeaconStartEventContent;
         use super::key::verification::{
             accept::KeyVerificationAcceptEventContent, cancel::KeyVerificationCancelEventContent,
             done::KeyVerificationDoneEventContent, key::KeyVerificationKeyEventContent,
@@ -378,7 +382,7 @@ impl AnyMessageLikeEventContent {
             // #[cfg(feature = "unstable-msc3489")]
             // Self::BeaconStart(_) => None,
             #[cfg(feature = "unstable-msc3489")]
-            Self::UnstableBeaconStart(_) => None,
+            Self::UnstableBeaconStart(UnstableBeaconStartEventContent) => None,
             #[cfg(feature = "unstable-msc3381")]
             Self::PollStart(_) | Self::UnstablePollStart(_) => None,
             #[cfg(feature = "unstable-msc4075")]
