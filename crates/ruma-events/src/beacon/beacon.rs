@@ -17,7 +17,7 @@ use crate::location::AssetContent;
 #[derive(Clone, Debug, Deserialize, Serialize, EventContent)]
 #[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
 #[ruma_event(type = "org.matrix.msc3672.beacon", alias = "m.beacon", kind = State, state_key_type = OwnedUserId)]
-pub struct BeaconStateEventContent {
+pub struct UnstableBeaconStartEventContent {
     /// The description of the location.
     ///
     /// It should be used to label the location on a map.
@@ -47,7 +47,7 @@ pub struct BeaconStateEventContent {
     pub asset: AssetContent,
 }
 
-impl BeaconStateEventContent {
+impl UnstableBeaconStartEventContent {
     /// Creates a new `BeaconInfoEventContent` with the given description, live, timeout and asset.
     pub fn new(description: Option<String>, timeout: Duration) -> Self {
         Self { description, live: false, ts: None, timeout, asset: Default::default() }

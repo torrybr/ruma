@@ -86,21 +86,22 @@ event_enum! {
         #[ruma_enum(ident = UnstablePollEnd)]
         "org.matrix.msc3381.poll.end" => super::poll::unstable_end,
 
-        #[cfg(feature = "unstable-msc3489")]
-        "m.beacon.start" => super::beacon::start,
+        // TODO (mre):
+        // #[cfg(feature = "unstable-msc3489")]
+        // "m.beacon.start" => super::beacon::start,
         #[cfg(feature = "unstable-msc3489")]
         #[ruma_enum(ident = UnstableBeaconStart)]
         "org.matrix.msc3489.beacon.start" => super::beacon::unstable_start,
-        #[cfg(feature = "unstable-msc3489")]
-        "m.beacon.response" => super::beacon::response,
-        #[cfg(feature = "unstable-msc3489")]
-        #[ruma_enum(ident = UnstableBeaconResponse)]
-        "org.matrix.msc3489.beacon.response" => super::beacon::unstable_response,
-        #[cfg(feature = "unstable-msc3489")]
-        "m.beacon.end" => super::beacon::end,
-        #[cfg(feature = "unstable-msc3489")]
-        #[ruma_enum(ident = UnstableBeaconEnd)]
-        "org.matrix.msc3381.beacon.end" => super::beacon::unstable_end,
+        // #[cfg(feature = "unstable-msc3489")]
+        // "m.beacon.response" => super::beacon::response,
+        // #[cfg(feature = "unstable-msc3489")]
+        // #[ruma_enum(ident = UnstableBeaconResponse)]
+        // "org.matrix.msc3489.beacon.response" => super::beacon::unstable_response,
+        // #[cfg(feature = "unstable-msc3489")]
+        // "m.beacon.end" => super::beacon::end,
+        // #[cfg(feature = "unstable-msc3489")]
+        // #[ruma_enum(ident = UnstableBeaconEnd)]
+        // "org.matrix.msc3381.beacon.end" => super::beacon::unstable_end,
 
         "m.reaction" => super::reaction,
         "m.room.encrypted" => super::room::encrypted,
@@ -373,6 +374,11 @@ impl AnyMessageLikeEventContent {
             | Self::UnstablePollEnd(UnstablePollEndEventContent { relates_to, .. }) => {
                 Some(encrypted::Relation::Reference(relates_to.clone()))
             }
+            // TODO (mre): Do we need this or can we skip it?
+            // #[cfg(feature = "unstable-msc3489")]
+            // Self::BeaconStart(_) => None,
+            #[cfg(feature = "unstable-msc3489")]
+            Self::UnstableBeaconStart(_) => None,
             #[cfg(feature = "unstable-msc3381")]
             Self::PollStart(_) | Self::UnstablePollStart(_) => None,
             #[cfg(feature = "unstable-msc4075")]
