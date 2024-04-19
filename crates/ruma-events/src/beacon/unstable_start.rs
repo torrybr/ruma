@@ -1,50 +1,107 @@
 //! Types for the `org.matrix.msc3489.beacon.start` event, the unstable version of `m.beacon.start`.
 
-use std::ops::Deref;
+use std::time::Duration;
 
 use js_int::UInt;
+use ruma_common::{MilliSecondsSinceUnixEpoch, OwnedUserId};
 use ruma_macros::EventContent;
 use serde::{Deserialize, Serialize};
 
-mod content_serde;
+use crate::location::AssetContent;
 
-use ruma_common::{MilliSecondsSinceUnixEpoch, OwnedEventId};
-
-use crate::{
-    beacon::UnstableBeaconStartEventContent, relation::Replacement,
-    room::message::RelationWithoutReplacement, EventContent, MessageLikeEventContent,
-    MessageLikeEventType, RedactContent, RedactedMessageLikeEventContent, StaticEventContent,
-};
-
-impl RedactContent for UnstableBeaconStartEventContent {
-    type Redacted = RedactedUnstableBeaconStartEventContent;
-
-    fn redact(self, _version: &crate::RoomVersionId) -> Self::Redacted {
-        RedactedUnstableBeaconStartEventContent::default()
-    }
-}
-
-/// Redacted form of UnstableBeaconStartEventContent
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+/// `BeaconInfoStateEventContent` is a struct that represents the content of a beacon_info state
+/// event. It contains information about a live location sharing event.
+#[derive(Clone, Debug, Deserialize, Serialize, EventContent)]
 #[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
-pub struct RedactedUnstableBeaconStartEventContent {}
+#[ruma_event(type = "org.matrix.msc3672.beacon", alias = "m.beacon", kind = State, state_key_type = OwnedUserId)]
+pub struct UnstableBeaconStartEventContent {
+    /// The description of the location.
+    ///
+    /// It should be used to label the location on a map.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
 
-impl RedactedUnstableBeaconStartEventContent {
-    /// Creates an empty RedactedUnstableBeaconStartEventContent.
-    pub fn new() -> RedactedUnstableBeaconStartEventContent {
-        Self::default()
+    /// `live` is a boolean that should be true when a user starts sharing location.
+    pub live: bool,
+
+    /// `ts` is an optional `MilliSecondsSinceUnixEpoch` that represents the timestamp of the
+    /// event.
+    #[serde(rename = "org.matrix.msc3488.ts", skip_serializing_if = "Option::is_none")]
+    pub ts: Option<MilliSecondsSinceUnixEpoch>,
+
+    /// `timeout` represents the length of time in milliseconds that the location
+    /// will be live. So the location will stop being shared at `m.ts + timeout` milliseconds
+    /// since the epoch.
+    #[serde(default, with = "ruma_common::serde::duration::ms")]
+    pub timeout: Duration,
+
+    /// `asset` is an `AssetContent` that this message refers to.
+    #[serde(
+        default,
+        rename = "org.matrix.msc3488.asset",
+        skip_serializing_if = "ruma_common::serde::is_default"
+    )]
+    pub asset: AssetContent,
+}
+
+impl UnstableBeaconStartEventContent {
+    /// Creates a new `BeaconInfoEventContent` with the given description, live, timeout and asset.
+    pub fn new(description: Option<String>, timeout: Duration) -> Self {
+        Self { description, live: false, ts: None, timeout, asset: Default::default() }
+    }
+
+    /// starts the beacon being live.
+    pub fn start(&mut self) {
+        self.live = true;
+    }
+
+    /// Stops the beacon from being live.
+    pub fn stop(&mut self) {
+        self.live = false;
+    }
+
+    /// Checks if the beacon is currently live.
+    ///
+    /// This method calculates the current time and compares it with the beacon's start time plus
+    /// its timeout. If the beacon is not live or the current time is greater than the beacon's
+    /// start time plus its timeout, it returns false, indicating that the beacon is not live.
+    /// Otherwise, it returns true.
+    pub fn is_live(&self) -> bool {
+        self.live
+            && self.ts.unwrap().get() + UInt::try_from(self.timeout.as_millis()).unwrap()
+                < MilliSecondsSinceUnixEpoch::now().get()
     }
 }
 
-impl RedactedMessageLikeEventContent for RedactedUnstableBeaconStartEventContent {}
+// impl RedactContent for UnstableBeaconStartEventContent {
+//     type Redacted = RedactedUnstableBeaconStartEventContent;
 
-impl EventContent for RedactedUnstableBeaconStartEventContent {
-    type EventType = MessageLikeEventType;
+//     fn redact(self, _version: &crate::RoomVersionId) -> Self::Redacted {
+//         RedactedUnstableBeaconStartEventContent::default()
+//     }
+// }
 
-    fn event_type(&self) -> Self::EventType {
-        MessageLikeEventType::UnstablePollStart
-    }
-}
+// /// Redacted form of UnstableBeaconStartEventContent
+// #[derive(Clone, Debug, Default, Serialize, Deserialize)]
+// #[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
+// pub struct RedactedUnstableBeaconStartEventContent {}
+
+// impl RedactedUnstableBeaconStartEventContent {
+//     /// Creates an empty RedactedUnstableBeaconStartEventContent.
+//     pub fn new() -> RedactedUnstableBeaconStartEventContent {
+//         Self::default()
+//     }
+// }
+
+// impl RedactedMessageLikeEventContent for RedactedUnstableBeaconStartEventContent {}
+
+// impl EventContent for RedactedUnstableBeaconStartEventContent {
+//     type EventType = MessageLikeEventType;
+
+//     fn event_type(&self) -> Self::EventType {
+//         MessageLikeEventType::UnstablePollStart
+//     }
+// }
 
 // TODO (mre): We probably don't need this as redacting a beacon event is not useful
 // Remove this if we don't need it

@@ -4,17 +4,6 @@
 //!
 //! [MSC3489]: https://github.com/matrix-org/matrix-spec-proposals/pull/3489
 
-use std::{
-    collections::{BTreeMap, BTreeSet},
-    ops::Deref,
-};
-
-use indexmap::IndexMap;
-use js_int::{uint, UInt};
-use ruma_common::{MilliSecondsSinceUnixEpoch, UserId};
-
-// use self::unstable_start::UnstableBeaconStartContentBlock;
-
 pub mod unstable_start;
 
 /// Start sharing the location
@@ -24,9 +13,7 @@ pub mod unstable_start;
 /// - Timestamp should be included in beacon
 ///
 /// TODO (mre): Write description
-// pub fn start_share_location<'a>(beacon: &'a UnstableBeaconStartEventContent) -> () {
+/// TODO (mre): Do we need a return type
 pub fn start_share_location<'a>() -> () {
     unimplemented!("Location sharing via live beacon is not implemented yet")
-
-    // aggregate_results(poll.answers.iter().map(|a| a.id.as_str()), users_selections)
 }
