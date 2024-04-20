@@ -13,11 +13,8 @@ use crate::location::AssetContent;
 /// event. It contains information about a live location sharing event.
 #[derive(Clone, Debug, Deserialize, Serialize, EventContent)]
 #[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
-// TODO (mre): Should be `kind = State` or `kind = MessageLike`?
-// Reasoning beacon_info is a  state event, but I think beacon is a message like event
-// #[ruma_event(type = "org.matrix.msc3672.beacon", alias = "m.beacon", kind = State, state_key_type = OwnedUserId)]
-#[ruma_event(type = "org.matrix.msc3672.beacon", alias = "m.beacon", kind = MessageLike)]
-pub struct UnstableBeaconStartEventContent {
+#[ruma_event(type = "org.matrix.msc3672.beacon_info", alias = "m.beacon_info", kind = State, state_key_type = OwnedUserId)]
+pub struct BeaconInfoEventContent {
     /// The description of the location.
     ///
     /// It should be used to label the location on a map.
@@ -47,7 +44,7 @@ pub struct UnstableBeaconStartEventContent {
     pub asset: AssetContent,
 }
 
-impl UnstableBeaconStartEventContent {
+impl BeaconInfoEventContent {
     /// Creates a new `BeaconInfoEventContent` with the given description, live, timeout and asset.
     pub fn new(description: Option<String>, timeout: Duration) -> Self {
         Self { description, live: false, ts: None, timeout, asset: Default::default() }
@@ -76,29 +73,29 @@ impl UnstableBeaconStartEventContent {
     }
 }
 
-// impl RedactContent for UnstableBeaconStartEventContent {
-//     type Redacted = RedactedUnstableBeaconStartEventContent;
+// impl RedactContent for UnstableBeaconInfoContent {
+//     type Redacted = RedactedUnstableBeaconInfoContent;
 
 //     fn redact(self, _version: &crate::RoomVersionId) -> Self::Redacted {
-//         RedactedUnstableBeaconStartEventContent::default()
+//         RedactedUnstableBeaconInfoContent::default()
 //     }
 // }
 
-// /// Redacted form of UnstableBeaconStartEventContent
+// /// Redacted form of UnstableBeaconInfoContent
 // #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 // #[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
-// pub struct RedactedUnstableBeaconStartEventContent {}
+// pub struct RedactedUnstableBeaconInfoContent {}
 
-// impl RedactedUnstableBeaconStartEventContent {
-//     /// Creates an empty RedactedUnstableBeaconStartEventContent.
-//     pub fn new() -> RedactedUnstableBeaconStartEventContent {
+// impl RedactedUnstableBeaconInfoContent {
+//     /// Creates an empty RedactedUnstableBeaconInfoContent.
+//     pub fn new() -> RedactedUnstableBeaconInfoContent {
 //         Self::default()
 //     }
 // }
 
-// impl RedactedMessageLikeEventContent for RedactedUnstableBeaconStartEventContent {}
+// impl RedactedMessageLikeEventContent for RedactedUnstableBeaconInfoContent {}
 
-// impl EventContent for RedactedUnstableBeaconStartEventContent {
+// impl EventContent for RedactedUnstableBeaconInfoContent {
 //     type EventType = MessageLikeEventType;
 
 //     fn event_type(&self) -> Self::EventType {
@@ -108,21 +105,21 @@ impl UnstableBeaconStartEventContent {
 
 // TODO (mre): We probably don't need this as redacting a beacon event is not useful
 // Remove this if we don't need it
-// impl RedactContent for UnstableBeaconStartEventContent {
-//     type Redacted = RedactedUnstableBeaconStartEventContent;
+// impl RedactContent for UnstableBeaconInfoContent {
+//     type Redacted = RedactedUnstableBeaconInfoContent;
 
 //     fn redact(self, _version: &crate::RoomVersionId) -> Self::Redacted {
-//         RedactedUnstableBeaconStartEventContent::default()
+//         RedactedUnstableBeaconInfoContent::default()
 //     }
 // }
 
-// impl From<NewUnstableBeaconStartEventContent> for UnstableBeaconStartEventContent {
-//     fn from(value: NewUnstableBeaconStartEventContent) -> Self {
+// impl From<NewUnstableBeaconInfoContent> for UnstableBeaconInfoContent {
+//     fn from(value: NewUnstableBeaconInfoContent) -> Self {
 //         Self::New(value)
 //     }
 // }
 
-impl OriginalSyncUnstableBeaconStartEvent {
+impl OriginalSyncBeaconInfoEvent {
     /// Compile the results for this beacon with the given response into an
     /// `UnstableBeaconEndEventContent`.
     ///
@@ -154,7 +151,7 @@ impl OriginalSyncUnstableBeaconStartEvent {
 // /// A new unstable beacon start event.
 // #[derive(Clone, Debug, Serialize)]
 // #[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
-// pub struct NewUnstableBeaconStartEventContent {
+// pub struct NewUnstableBeaconInfoContent {
 //     /// The beacon content of the message.
 //     #[serde(rename = "org.matrix.msc3489.beacon.start")]
 //     pub beacon_start: UnstableBeaconStartContentBlock,
@@ -168,13 +165,13 @@ impl OriginalSyncUnstableBeaconStartEvent {
 //     pub relates_to: Option<RelationWithoutReplacement>,
 // }
 
-// impl NewUnstableBeaconStartEventContent {
-//     /// Creates a `NewUnstableBeaconStartEventContent` with the given beacon content.
+// impl NewUnstableBeaconInfoContent {
+//     /// Creates a `NewUnstableBeaconInfoContent` with the given beacon content.
 //     pub fn new(beacon_start: UnstableBeaconStartContentBlock) -> Self {
 //         Self { beacon_start, text: None, relates_to: None }
 //     }
 
-//     /// Creates a `NewUnstableBeaconStartEventContent` with the given plain text fallback
+//     /// Creates a `NewUnstableBeaconInfoContent` with the given plain text fallback
 //     /// representation and beacon content.
 //     pub fn plain_text(
 //         text: impl Into<String>,
@@ -184,7 +181,7 @@ impl OriginalSyncUnstableBeaconStartEvent {
 //     }
 // }
 
-// impl EventContent for NewUnstableBeaconStartEventContent {
+// impl EventContent for NewUnstableBeaconInfoContent {
 //     type EventType = MessageLikeEventType;
 
 //     fn event_type(&self) -> Self::EventType {
@@ -192,19 +189,19 @@ impl OriginalSyncUnstableBeaconStartEvent {
 //     }
 // }
 
-// impl StaticEventContent for NewUnstableBeaconStartEventContent {
+// impl StaticEventContent for NewUnstableBeaconInfoContent {
 //     const TYPE: &'static str = "org.matrix.msc3489.beacon.start";
 // }
 
-// impl MessageLikeEventContent for NewUnstableBeaconStartEventContent {}
+// impl MessageLikeEventContent for NewUnstableBeaconInfoContent {}
 
-// /// Form of [`NewUnstableBeaconStartEventContent`] without relation.
+// /// Form of [`NewUnstableBeaconInfoContent`] without relation.
 // ///
-// /// To construct this type, construct a [`NewUnstableBeaconStartEventContent`] and then use one
+// /// To construct this type, construct a [`NewUnstableBeaconInfoContent`] and then use one
 // of /// its `::from()` / `.into()` methods.
 // #[derive(Clone, Debug, Serialize, Deserialize)]
 // #[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
-// pub struct NewUnstableBeaconStartEventContentWithoutRelation {
+// pub struct NewUnstableBeaconInfoContentWithoutRelation {
 //     /// The beacon content of the message.
 //     #[serde(rename = "org.matrix.msc3489.beacon.start")]
 //     pub beacon_start: UnstableBeaconStartContentBlock,
@@ -214,28 +211,28 @@ impl OriginalSyncUnstableBeaconStartEvent {
 //     pub text: Option<String>,
 // }
 
-// impl From<NewUnstableBeaconStartEventContent>
-//     for NewUnstableBeaconStartEventContentWithoutRelation
+// impl From<NewUnstableBeaconInfoContent>
+//     for NewUnstableBeaconInfoContentWithoutRelation
 // {
-//     fn from(value: NewUnstableBeaconStartEventContent) -> Self {
-//         let NewUnstableBeaconStartEventContent { beacon_start, text, .. } = value;
+//     fn from(value: NewUnstableBeaconInfoContent) -> Self {
+//         let NewUnstableBeaconInfoContent { beacon_start, text, .. } = value;
 //         Self { beacon_start, text }
 //     }
 // }
 
-// /// Redacted form of UnstableBeaconStartEventContent
+// /// Redacted form of UnstableBeaconInfoContent
 // #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 // #[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
-// pub struct RedactedUnstableBeaconStartEventContent {}
+// pub struct RedactedUnstableBeaconInfoContent {}
 
-// impl RedactedUnstableBeaconStartEventContent {
-//     /// Creates an empty RedactedUnstableBeaconStartEventContent.
-//     pub fn new() -> RedactedUnstableBeaconStartEventContent {
+// impl RedactedUnstableBeaconInfoContent {
+//     /// Creates an empty RedactedUnstableBeaconInfoContent.
+//     pub fn new() -> RedactedUnstableBeaconInfoContent {
 //         Self::default()
 //     }
 // }
 
-// impl EventContent for RedactedUnstableBeaconStartEventContent {
+// impl EventContent for RedactedUnstableBeaconInfoContent {
 //     type EventType = MessageLikeEventType;
 
 //     fn event_type(&self) -> Self::EventType {
@@ -243,11 +240,11 @@ impl OriginalSyncUnstableBeaconStartEvent {
 //     }
 // }
 
-// impl StaticEventContent for RedactedUnstableBeaconStartEventContent {
+// impl StaticEventContent for RedactedUnstableBeaconInfoContent {
 //     const TYPE: &'static str = "org.matrix.msc3489.beacon.start";
 // }
 
-// impl RedactedMessageLikeEventContent for RedactedUnstableBeaconStartEventContent {}
+// impl RedactedMessageLikeEventContent for RedactedUnstableBeaconInfoContent {}
 
 // /// An unstable block for beacon start content.
 // #[derive(Debug, Clone, Serialize, Deserialize)]

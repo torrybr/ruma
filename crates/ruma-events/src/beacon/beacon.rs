@@ -9,8 +9,8 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Serialize, Deserialize, EventContent)]
 #[cfg_attr(not(feature = "unstable-exhaustive-types"), non_exhaustive)]
-#[ruma_event(type = "org.matrix.msc3672.beacon_info", alias = "m.beacon_info", kind = MessageLike)]
-pub struct BeaconInfoEventContent {
+#[ruma_event(type = "org.matrix.msc3672.beacon", alias = "m.beacon", kind = MessageLike)]
+pub struct BeaconEventContent {
     /// Information about the beacon state event this relates to.
     #[serde(rename = "m.relates_to")]
     pub relates_to: Reference,
@@ -24,8 +24,8 @@ pub struct BeaconInfoEventContent {
     pub ts: Option<MilliSecondsSinceUnixEpoch>,
 }
 
-impl BeaconInfoEventContent {
-    /// Create a new `BeaconInfoEventContent` with the given relates_to, location and timestamp.
+impl BeaconEventContent {
+    /// Create a new `BeaconEventContent` with the given relates_to, location and timestamp.
     pub fn new(
         relates_to: Reference,
         location: LocationContent,

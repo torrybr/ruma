@@ -5,13 +5,13 @@ use std::time::Duration;
 use js_int::uint;
 use ruma_common::MilliSecondsSinceUnixEpoch;
 use ruma_events::{
-    beacon::unstable_start::UnstableBeaconStartEventContent,
+    beacon::unstable_start::BeaconInfoEventContent,
     location::{AssetContent, AssetType},
 };
 
 #[test]
 fn unstable_beacon_start_event_content_serialization() {
-    let event_content = UnstableBeaconStartEventContent {
+    let event_content = BeaconInfoEventContent {
         description: Some("Alice's location".to_owned()),
         live: true,
         ts: Some(MilliSecondsSinceUnixEpoch(uint!(1_636_829_458))),

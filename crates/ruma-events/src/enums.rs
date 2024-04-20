@@ -86,19 +86,19 @@ event_enum! {
         #[ruma_enum(ident = UnstablePollEnd)]
         "org.matrix.msc3381.poll.end" => super::poll::unstable_end,
 
-        // TODO (mre):
+
+        // TODO: Re-enable message-like event here for beacon
+        // #[cfg(feature = "unstable-msc3489")]
+        // #[ruma_enum(ident = UnstableBeaconStart)]
+        // "org.matrix.msc3672.beacon" => super::beacon::unstable_start,
+
         // #[cfg(feature = "unstable-msc3489")]
         // "m.beacon.start" => super::beacon::start,
-
-        #[cfg(feature = "unstable-msc3489")]
-        #[ruma_enum(ident = UnstableBeaconStart)]
-        "org.matrix.msc3489.beacon.start" => super::beacon::unstable_start,
-
         // #[cfg(feature = "unstable-msc3489")]
         // "m.beacon.response" => super::beacon::response,
         // #[cfg(feature = "unstable-msc3489")]
         // #[ruma_enum(ident = UnstableBeaconResponse)]
-        // "org.matrix.msc3489.beacon.response" => super::beacon::unstable_response,
+        // "org.matrix.msc3672.beacon.response" => super::beacon::unstable_response,
         // #[cfg(feature = "unstable-msc3489")]
         // "m.beacon.end" => super::beacon::end,
         // #[cfg(feature = "unstable-msc3489")]
@@ -144,6 +144,10 @@ event_enum! {
         "m.room.topic" => super::room::topic,
         "m.space.child" => super::space::child,
         "m.space.parent" => super::space::parent,
+        #[cfg(feature = "unstable-msc3489")]
+        #[ruma_enum(alias = "m.beacon_info")]
+        // Note: the prefix is shared with MSC3672.
+        "org.matrix.msc3672.m.beacon_info" => super::beacon::unstable_start,
         #[cfg(feature = "unstable-msc3401")]
         #[ruma_enum(alias = "m.call.member")]
         "org.matrix.msc3401.call.member" => super::call::member,
@@ -324,8 +328,9 @@ impl AnyMessageLikeEventContent {
     /// This is a helper function intended for encryption. There should not be a reason to access
     /// `m.relates_to` without first destructuring an `AnyMessageLikeEventContent` otherwise.
     pub fn relation(&self) -> Option<encrypted::Relation> {
+        // TODO (mre): Add beacon in here (m.beacon), because that's the actual `MessageLike`
         #[cfg(feature = "unstable-msc3489")]
-        use super::beacon::unstable_start::UnstableBeaconStartEventContent;
+        use super::beacon::unstable_start::BeaconInfoEventContent;
         use super::key::verification::{
             accept::KeyVerificationAcceptEventContent, cancel::KeyVerificationCancelEventContent,
             done::KeyVerificationDoneEventContent, key::KeyVerificationKeyEventContent,
@@ -378,11 +383,9 @@ impl AnyMessageLikeEventContent {
             | Self::UnstablePollEnd(UnstablePollEndEventContent { relates_to, .. }) => {
                 Some(encrypted::Relation::Reference(relates_to.clone()))
             }
-            // TODO (mre): Do we need this or can we skip it?
+            // TODO (mre): Adjust this event name once we can handle beacons
             // #[cfg(feature = "unstable-msc3489")]
-            // Self::BeaconStart(_) => None,
-            #[cfg(feature = "unstable-msc3489")]
-            Self::UnstableBeaconStart(UnstableBeaconStartEventContent) => None,
+            // Self::UnstableBeaconShare(UnstableBeaconContent) => None,
             #[cfg(feature = "unstable-msc3381")]
             Self::PollStart(_) | Self::UnstablePollStart(_) => None,
             #[cfg(feature = "unstable-msc4075")]
