@@ -328,9 +328,6 @@ impl AnyMessageLikeEventContent {
     /// This is a helper function intended for encryption. There should not be a reason to access
     /// `m.relates_to` without first destructuring an `AnyMessageLikeEventContent` otherwise.
     pub fn relation(&self) -> Option<encrypted::Relation> {
-        // TODO (mre): Add beacon in here (m.beacon), because that's the actual `MessageLike`
-        #[cfg(feature = "unstable-msc3489")]
-        use super::beacon::unstable_start::BeaconInfoEventContent;
         use super::key::verification::{
             accept::KeyVerificationAcceptEventContent, cancel::KeyVerificationCancelEventContent,
             done::KeyVerificationDoneEventContent, key::KeyVerificationKeyEventContent,
@@ -383,7 +380,7 @@ impl AnyMessageLikeEventContent {
             | Self::UnstablePollEnd(UnstablePollEndEventContent { relates_to, .. }) => {
                 Some(encrypted::Relation::Reference(relates_to.clone()))
             }
-            // TODO (mre): Adjust this event name once we can handle beacons
+            // TODO (mre): Add support for handling beacon event
             // #[cfg(feature = "unstable-msc3489")]
             // Self::UnstableBeaconShare(UnstableBeaconContent) => None,
             #[cfg(feature = "unstable-msc3381")]
