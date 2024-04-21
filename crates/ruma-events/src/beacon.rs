@@ -4,8 +4,6 @@
 //!
 //! [MSC3489]: https://github.com/matrix-org/matrix-spec-proposals/pull/3489
 
-pub mod unstable_start;
-
 /// Start sharing the location
 ///
 /// Assumptions:

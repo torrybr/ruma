@@ -147,7 +147,7 @@ event_enum! {
         #[cfg(feature = "unstable-msc3489")]
         #[ruma_enum(alias = "m.beacon_info")]
         // Note: the prefix is shared with MSC3672.
-        "org.matrix.msc3672.m.beacon_info" => super::beacon::unstable_start,
+        "org.matrix.msc3672.m.beacon_info" => super::room::beacon,
         #[cfg(feature = "unstable-msc3401")]
         #[ruma_enum(alias = "m.call.member")]
         "org.matrix.msc3401.call.member" => super::call::member,
