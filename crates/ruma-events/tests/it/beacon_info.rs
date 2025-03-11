@@ -18,7 +18,7 @@ fn get_beacon_info_event_content(
     let duration_or = duration.unwrap_or(Duration::from_secs(60));
     let ts_or = Some(ts.unwrap_or(MilliSecondsSinceUnixEpoch::now()));
 
-    BeaconInfoEventContent::new(description, duration_or, true, ts_or)
+    BeaconInfoEventContent::new(description, duration_or, true, None, ts_or)
 }
 
 fn get_beacon_info_json() -> serde_json::Value {
@@ -78,6 +78,7 @@ fn beacon_info_start_event() {
         Some("Kylie's live location".to_owned()),
         Duration::from_secs(60),
         false,
+        None,
         ts,
     );
 
@@ -125,6 +126,56 @@ fn beacon_info_start_event_content_deserialization() {
 
     assert_eq!(event_content.description, Some("Kylie's live location".to_owned()));
     assert!(event_content.live);
+    assert_eq!(event_content.ts, MilliSecondsSinceUnixEpoch(uint!(1_636_829_458)));
+    assert_eq!(event_content.timeout, Duration::from_secs(60));
+    assert_eq!(event_content.asset.type_, AssetType::Self_);
+}
+
+#[test]
+fn beacon_info_highlight_event_serialization() {
+    let ts = Some(MilliSecondsSinceUnixEpoch(1_636_829_458_u64.try_into().unwrap()));
+
+    let event_content = BeaconInfoEventContent::new(
+        Some("Kylie's live location".to_owned()),
+        Duration::from_secs(60),
+        false,
+        Some("#FF0000".to_owned()),
+        ts,
+    );
+
+    assert_eq!(
+        to_json_value(&event_content).unwrap(),
+        json!({
+            "org.matrix.msc3488.ts": 1_636_829_458,
+            "org.matrix.msc3488.asset": {
+                "type": "m.self"
+            },
+            "highlight_color": "#FF0000",
+            "timeout": 60_000,
+            "description": "Kylie's live location",
+            "live": false
+        })
+    );
+}
+#[test]
+fn beacon_info_highlight_event_deserialization() {
+    let json_data = json!({
+        "org.matrix.msc3488.ts": 1_636_829_458,
+        "org.matrix.msc3488.asset": {
+            "type": "m.self"
+        },
+        "highlight_color": "#FF0000",
+        "timeout": 60_000,
+        "description": "Kylie's live location",
+        "live": false
+    });
+
+    let event_content: BeaconInfoEventContent = serde_json::from_value(json_data).unwrap();
+
+    assert_eq!(event_content.description, Some("Kylie's live location".to_owned()));
+    assert_eq!(event_content.highlight_color, Some("#FF0000".to_owned()));
+    assert!(event_content.is_highlighted());
+    assert!(!event_content.live);
     assert_eq!(event_content.ts, MilliSecondsSinceUnixEpoch(uint!(1_636_829_458)));
     assert_eq!(event_content.timeout, Duration::from_secs(60));
     assert_eq!(event_content.asset.type_, AssetType::Self_);

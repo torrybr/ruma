@@ -39,6 +39,10 @@ pub struct BeaconInfoEventContent {
     /// The asset that this message refers to.
     #[serde(default, rename = "org.matrix.msc3488.asset")]
     pub asset: AssetContent,
+
+    /// The color to highlight the beacon_info.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub highlight_color: Option<String>,
 }
 
 impl BeaconInfoEventContent {
@@ -48,6 +52,7 @@ impl BeaconInfoEventContent {
         description: Option<String>,
         timeout: Duration,
         live: bool,
+        highlight_color: Option<String>,
         ts: Option<MilliSecondsSinceUnixEpoch>,
     ) -> Self {
         Self {
@@ -56,6 +61,7 @@ impl BeaconInfoEventContent {
             ts: ts.unwrap_or_else(MilliSecondsSinceUnixEpoch::now),
             timeout,
             asset: Default::default(),
+            highlight_color,
         }
     }
 
@@ -67,6 +73,16 @@ impl BeaconInfoEventContent {
     /// Stops the beacon_info from being live.
     pub fn stop(&mut self) {
         self.live = false;
+    }
+
+    /// Set a new highlight color for the map dot.
+    pub fn set_highlight_color(&mut self, color: Option<String>) {
+        self.highlight_color = color
+    }
+
+    /// Returns whether the beacon_info is highlighted.
+    pub fn is_highlighted(&self) -> bool {
+        self.highlight_color.is_some()
     }
 
     /// Start time plus its timeout, it returns `false`, indicating that the beacon is not live.
