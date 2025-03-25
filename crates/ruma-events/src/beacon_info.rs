@@ -75,6 +75,10 @@ impl BeaconInfoEventContent {
         self.live = false;
     }
 
+    pub fn highlight_color_f(&self) -> Option<String> {
+        self.highlight_color.clone()
+    }
+
     /// Set a new highlight color for the map dot.
     pub fn set_highlight_color(&mut self, color: Option<String>) {
         self.highlight_color = color
