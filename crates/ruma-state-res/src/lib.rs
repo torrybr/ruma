@@ -3,30 +3,31 @@ use std::{
     cmp::{Ordering, Reverse},
     collections::{BinaryHeap, HashMap, HashSet},
     hash::Hash,
+    sync::OnceLock,
 };
 
-use js_int::{int, Int};
-use ruma_common::{EventId, MilliSecondsSinceUnixEpoch, RoomVersionId};
-use ruma_events::{
-    room::member::{MembershipState, RoomMemberEventContent},
-    StateEventType, TimelineEventType,
+use js_int::Int;
+use ruma_common::{
+    room_version_rules::AuthorizationRules, EventId, MilliSecondsSinceUnixEpoch, OwnedUserId,
 };
-use serde_json::from_str as from_json_str;
+use ruma_events::{room::member::MembershipState, StateEventType, TimelineEventType};
 use tracing::{debug, info, instrument, trace, warn};
 
 mod error;
 pub mod event_auth;
-mod power_levels;
-pub mod room_version;
-mod state_event;
+pub mod events;
 #[cfg(test)]
 mod test_utils;
 
-pub use error::{Error, Result};
-pub use event_auth::{auth_check, auth_types_for_event};
-use power_levels::PowerLevelsContentFields;
-pub use room_version::RoomVersion;
-pub use state_event::Event;
+use self::events::{
+    member::RoomMemberEvent, power_levels::RoomPowerLevelsEventOptionExt, RoomCreateEvent,
+    RoomPowerLevelsEvent,
+};
+pub use self::{
+    error::{Error, Result},
+    event_auth::{auth_check, auth_types_for_event},
+    events::Event,
+};
 
 /// A mapping of event type and state_key to some value `T`, usually an `EventId`.
 pub type StateMap<T> = HashMap<(StateEventType, String), T>;
@@ -37,6 +38,8 @@ pub type StateMap<T> = HashMap<(StateEventType, String), T>;
 /// resolution.
 ///
 /// ## Arguments
+///
+/// * `rules` - The rules to apply for the version of the current room.
 ///
 /// * `state_sets` - The incoming state to resolve. Each `StateMap` represents a possible fork in
 ///   the state of a room.
@@ -51,9 +54,9 @@ pub type StateMap<T> = HashMap<(StateEventType, String), T>;
 ///
 /// The caller of `resolve` must ensure that all the events are from the same room. Although this
 /// function takes a `RoomId` it does not check that each event is part of the same room.
-#[instrument(skip(state_sets, auth_chain_sets, fetch_event))]
+#[instrument(skip(rules, state_sets, auth_chain_sets, fetch_event))]
 pub fn resolve<'a, E, SetIter>(
-    room_version: &RoomVersionId,
+    rules: &AuthorizationRules,
     state_sets: impl IntoIterator<IntoIter = SetIter>,
     auth_chain_sets: Vec<HashSet<E::Id>>,
     fetch_event: impl Fn(&EventId) -> Option<E>,
@@ -102,15 +105,14 @@ where
 
     // Sort the control events based on power_level/clock/event_id and outgoing/incoming edges
     let sorted_control_levels =
-        reverse_topological_power_sort(control_events, &all_conflicted, &fetch_event)?;
+        reverse_topological_power_sort(control_events, &all_conflicted, rules, &fetch_event)?;
 
     debug!(count = sorted_control_levels.len(), "power events");
     trace!(list = ?sorted_control_levels, "sorted power events");
 
-    let room_version = RoomVersion::new(room_version)?;
     // Sequentially auth check each control event.
     let resolved_control =
-        iterative_auth_check(&room_version, &sorted_control_levels, clean.clone(), &fetch_event)?;
+        iterative_auth_check(rules, &sorted_control_levels, clean.clone(), &fetch_event)?;
 
     debug!(count = resolved_control.len(), "resolved power events");
     trace!(map = ?resolved_control, "resolved power events");
@@ -140,7 +142,7 @@ where
     trace!(list = ?sorted_left_events, "events left, sorted");
 
     let mut resolved_state = iterative_auth_check(
-        &room_version,
+        rules,
         &sorted_left_events,
         resolved_control, // The control events are added to the final resolved state
         &fetch_event,
@@ -221,6 +223,7 @@ where
 fn reverse_topological_power_sort<E: Event>(
     events_to_sort: Vec<E::Id>,
     auth_diff: &HashSet<E::Id>,
+    rules: &AuthorizationRules,
     fetch_event: impl Fn(&EventId) -> Option<E>,
 ) -> Result<Vec<E::Id>> {
     debug!("reverse topological sort of power events");
@@ -236,8 +239,13 @@ fn reverse_topological_power_sort<E: Event>(
 
     // This is used in the `key_fn` passed to the lexico_topo_sort fn
     let mut event_to_pl = HashMap::new();
+    // We need to know the creator in case of missing power levels. Given that it's the same for all
+    // the events in the room, we will just load it for the first event and reuse it.
+    let creator_lock = OnceLock::new();
+
     for event_id in graph.keys() {
-        let pl = get_power_level_for_sender(event_id.borrow(), &fetch_event)?;
+        let pl = get_power_level_for_sender(event_id.borrow(), rules, &creator_lock, &fetch_event)
+            .map_err(Error::AuthEvent)?;
         debug!(
             event_id = event_id.borrow().as_str(),
             power_level = i64::from(pl),
@@ -252,8 +260,8 @@ fn reverse_topological_power_sort<E: Event>(
     }
 
     lexicographical_topological_sort(&graph, |event_id| {
-        let ev = fetch_event(event_id).ok_or_else(|| Error::NotFound("".into()))?;
-        let pl = *event_to_pl.get(event_id).ok_or_else(|| Error::NotFound("".into()))?;
+        let ev = fetch_event(event_id).ok_or_else(|| Error::NotFound(event_id.to_owned()))?;
+        let pl = *event_to_pl.get(event_id).ok_or_else(|| Error::NotFound(event_id.to_owned()))?;
         Ok((pl, ev.origin_server_ts()))
     })
 }
@@ -379,32 +387,48 @@ where
 /// event).
 fn get_power_level_for_sender<E: Event>(
     event_id: &EventId,
+    rules: &AuthorizationRules,
+    creator_lock: &OnceLock<OwnedUserId>,
     fetch_event: impl Fn(&EventId) -> Option<E>,
-) -> serde_json::Result<Int> {
+) -> std::result::Result<Int, String> {
     let event = fetch_event(event_id);
-    let mut pl = None;
+    let mut room_create_event = None;
+    let mut room_power_levels_event = None;
 
     for aid in event.as_ref().map(|pdu| pdu.auth_events()).into_iter().flatten() {
         if let Some(aev) = fetch_event(aid.borrow()) {
             if is_type_and_key(&aev, &TimelineEventType::RoomPowerLevels, "") {
-                pl = Some(aev);
+                room_power_levels_event = Some(RoomPowerLevelsEvent::new(aev));
+            } else if creator_lock.get().is_none()
+                && is_type_and_key(&aev, &TimelineEventType::RoomCreate, "")
+            {
+                room_create_event = Some(RoomCreateEvent::new(aev));
+            }
+
+            if room_power_levels_event.is_some()
+                && (creator_lock.get().is_some() || room_create_event.is_some())
+            {
                 break;
             }
         }
     }
 
-    let content: PowerLevelsContentFields = match pl {
-        None => return Ok(int!(0)),
-        Some(ev) => from_json_str(ev.content().get())?,
+    // TODO: Use OnceLock::try_or_get_init when it is stabilized.
+    let creator = if let Some(creator) = creator_lock.get() {
+        Some(creator)
+    } else if let Some(room_create_event) = room_create_event {
+        let creator = room_create_event.creator(rules)?;
+        Some(creator_lock.get_or_init(|| creator.into_owned()))
+    } else {
+        None
     };
 
-    if let Some(ev) = event {
-        if let Some(&user_level) = content.users.get(ev.sender()) {
-            return Ok(user_level);
-        }
+    if let Some((event, creator)) = event.zip(creator) {
+        room_power_levels_event.user_power_level(event.sender(), creator, rules)
+    } else {
+        room_power_levels_event
+            .get_as_int_or_default(events::RoomPowerLevelsIntField::UsersDefault, rules)
     }
-
-    Ok(content.users_default)
 }
 
 /// Check the that each event is authenticated based on the events before it.
@@ -417,7 +441,7 @@ fn get_power_level_for_sender<E: Event>(
 /// For each `events_to_check` event we gather the events needed to auth it from the the
 /// `fetch_event` closure and verify each event using the `event_auth::auth_check` function.
 fn iterative_auth_check<E: Event + Clone>(
-    room_version: &RoomVersion,
+    rules: &AuthorizationRules,
     events_to_check: &[E::Id],
     unconflicted_state: StateMap<E::Id>,
     fetch_event: impl Fn(&EventId) -> Option<E>,
@@ -430,10 +454,8 @@ fn iterative_auth_check<E: Event + Clone>(
 
     for event_id in events_to_check {
         let event = fetch_event(event_id.borrow())
-            .ok_or_else(|| Error::NotFound(format!("Failed to find {event_id}")))?;
-        let state_key = event
-            .state_key()
-            .ok_or_else(|| Error::InvalidPdu("State event had no state key".to_owned()))?;
+            .ok_or_else(|| Error::NotFound(event_id.borrow().to_owned()))?;
+        let state_key = event.state_key().ok_or(Error::MissingStateKey)?;
 
         let mut auth_events = StateMap::new();
         for aid in event.auth_events() {
@@ -441,9 +463,7 @@ fn iterative_auth_check<E: Event + Clone>(
                 // TODO synapse check "rejected_reason" which is most likely
                 // related to soft-failing
                 auth_events.insert(
-                    ev.event_type().with_state_key(ev.state_key().ok_or_else(|| {
-                        Error::InvalidPdu("State event had no state key".to_owned())
-                    })?),
+                    ev.event_type().with_state_key(ev.state_key().ok_or(Error::MissingStateKey)?),
                     ev,
                 );
             } else {
@@ -451,12 +471,21 @@ fn iterative_auth_check<E: Event + Clone>(
             }
         }
 
-        for key in auth_types_for_event(
+        let auth_types = match auth_types_for_event(
             event.event_type(),
             event.sender(),
             Some(state_key),
             event.content(),
-        )? {
+            rules,
+        ) {
+            Ok(auth_types) => auth_types,
+            Err(error) => {
+                warn!("failed to get list of required auth events for malformed event: {error}");
+                continue;
+            }
+        };
+
+        for key in auth_types {
             if let Some(ev_id) = resolved_state.get(&key) {
                 if let Some(event) = fetch_event(ev_id.borrow()) {
                     // TODO synapse checks `rejected_reason` is None here
@@ -465,20 +494,16 @@ fn iterative_auth_check<E: Event + Clone>(
             }
         }
 
-        // The key for this is (eventType + a state_key of the signed token not sender) so
-        // search for it
-        let current_third_party = auth_events.iter().find_map(|(_, pdu)| {
-            (*pdu.event_type() == TimelineEventType::RoomThirdPartyInvite).then_some(pdu)
-        });
-
-        if auth_check(room_version, &event, current_third_party, |ty, key| {
-            auth_events.get(&ty.with_state_key(key))
-        })? {
-            // add event to resolved state map
-            resolved_state.insert(event.event_type().with_state_key(state_key), event_id.clone());
-        } else {
-            // synapse passes here on AuthError. We do not add this event to resolved_state.
-            warn!("event failed the authentication check");
+        match auth_check(rules, &event, |ty, key| auth_events.get(&ty.with_state_key(key))) {
+            Ok(()) => {
+                // Add event to resolved state.
+                resolved_state
+                    .insert(event.event_type().with_state_key(state_key), event_id.clone());
+            }
+            Err(error) => {
+                // Don't add this event to resolved_state.
+                warn!("event failed the authentication check: {error}");
+            }
         }
 
         // TODO: if these functions are ever made async here
@@ -512,12 +537,12 @@ fn mainline_sort<E: Event>(
     while let Some(p) = pl {
         mainline.push(p.clone());
 
-        let event = fetch_event(p.borrow())
-            .ok_or_else(|| Error::NotFound(format!("Failed to find {p}")))?;
+        let event =
+            fetch_event(p.borrow()).ok_or_else(|| Error::NotFound(p.borrow().to_owned()))?;
         pl = None;
         for aid in event.auth_events() {
-            let ev = fetch_event(aid.borrow())
-                .ok_or_else(|| Error::NotFound(format!("Failed to find {aid}")))?;
+            let ev =
+                fetch_event(aid.borrow()).ok_or_else(|| Error::NotFound(p.borrow().to_owned()))?;
             if is_type_and_key(&ev, &TimelineEventType::RoomPowerLevels, "") {
                 pl = Some(aid.to_owned());
                 break;
@@ -576,7 +601,7 @@ fn get_mainline_depth<E: Event>(
         event = None;
         for aid in sort_ev.auth_events() {
             let aev = fetch_event(aid.borrow())
-                .ok_or_else(|| Error::NotFound(format!("Failed to find {aid}")))?;
+                .ok_or_else(|| Error::NotFound(aid.borrow().to_owned()))?;
             if is_type_and_key(&aev, &TimelineEventType::RoomPowerLevels, "") {
                 event = Some(aev);
                 break;
@@ -629,10 +654,11 @@ fn is_power_event(event: impl Event) -> bool {
         | TimelineEventType::RoomJoinRules
         | TimelineEventType::RoomCreate => event.state_key() == Some(""),
         TimelineEventType::RoomMember => {
-            if let Ok(content) = from_json_str::<RoomMemberEventContent>(event.content().get()) {
-                if [MembershipState::Leave, MembershipState::Ban].contains(&content.membership) {
-                    return Some(event.sender().as_str()) != event.state_key();
-                }
+            let room_member_event = RoomMemberEvent::new(event);
+            if room_member_event.membership().is_ok_and(|membership| {
+                matches!(membership, MembershipState::Leave | MembershipState::Ban)
+            }) {
+                return Some(room_member_event.sender().as_str()) != room_member_event.state_key();
             }
 
             false
@@ -677,7 +703,9 @@ mod tests {
     use js_int::{int, uint};
     use maplit::{hashmap, hashset};
     use rand::seq::SliceRandom;
-    use ruma_common::{MilliSecondsSinceUnixEpoch, OwnedEventId, RoomVersionId};
+    use ruma_common::{
+        room_version_rules::AuthorizationRules, MilliSecondsSinceUnixEpoch, OwnedEventId,
+    };
     use ruma_events::{
         room::join_rules::{JoinRule, RoomJoinRulesEventContent},
         StateEventType, TimelineEventType,
@@ -687,7 +715,6 @@ mod tests {
 
     use crate::{
         is_power_event,
-        room_version::RoomVersion,
         test_utils::{
             alice, bob, charlie, do_check, ella, event_id, member_content_ban, member_content_join,
             room_id, to_init_pdu_event, to_pdu_event, zara, PduEvent, TestStore, INITIAL_EVENTS,
@@ -713,14 +740,16 @@ mod tests {
             .map(|pdu| pdu.event_id.clone())
             .collect::<Vec<_>>();
 
-        let sorted_power_events =
-            crate::reverse_topological_power_sort(power_events, &auth_chain, |id| {
-                events.get(id).cloned()
-            })
-            .unwrap();
+        let sorted_power_events = crate::reverse_topological_power_sort(
+            power_events,
+            &auth_chain,
+            &AuthorizationRules::V6,
+            |id| events.get(id).cloned(),
+        )
+        .unwrap();
 
         let resolved_power = crate::iterative_auth_check(
-            &RoomVersion::V6,
+            &AuthorizationRules::V6,
             &sorted_power_events,
             HashMap::new(), // unconflicted events
             |id| events.get(id).cloned(),
@@ -1081,7 +1110,7 @@ mod tests {
         let ev_map = store.0.clone();
         let state_sets = [state_at_bob, state_at_charlie];
         let resolved = match crate::resolve(
-            &RoomVersionId::V2,
+            &AuthorizationRules::V1,
             &state_sets,
             state_sets
                 .iter()
@@ -1181,7 +1210,7 @@ mod tests {
         let ev_map = &store.0;
         let state_sets = [state_set_a, state_set_b];
         let resolved = match crate::resolve(
-            &RoomVersionId::V6,
+            &AuthorizationRules::V6,
             &state_sets,
             state_sets
                 .iter()

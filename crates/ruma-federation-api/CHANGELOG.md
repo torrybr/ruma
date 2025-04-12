@@ -1,5 +1,17 @@
 # [unreleased]
 
+Breaking changes:
+
+- Remove the `origin` field in `create_join_event::{v1/v2}::RoomState` due to a
+  clarification in the spec.
+
+Improvements:
+
+- ruma-server-util was merged into this crate. `XMatrix` is available in the
+  `authentication` module.
+
+# 0.11.1
+
 Improvements:
 
 - The `unstable-unspecified` cargo feature was removed. The `pdus` field of

@@ -1,9 +1,38 @@
 # [unreleased]
 
+Breaking changes:
+
+- Use `AuthType` for the `auth_type` of `get_uiaa_fallback_page`'s Request.
+- `get_supported_versions::Response::known_versions()` returns a
+  `BTreeSet<MatrixVersion>` instead of a `DoubleEndedIterator`.
+- Only allow appservices to call `appservice::request_ping::v1` and
+  `appservice::set_room_visibility::v1`
+- The `params` field of `UiaaInfo` is now optional. It was never required in the
+  specification. Servers are encouraged to keep sending it for compatibility with
+  clients that required it.
+- The `reason` field of `report_room::v3::Request` is now required, due to a
+  clarification in the spec.
+
+Improvements:
+
+- Remove the unstable support for MSC3575 as it was closed. MSC4186 should be
+  used instead.
+- For the `membership::join_room_by_id_or_alias` and `knock::knock_room`
+  endpoints, the `server_name` query parameter is only serialized if the server
+  doesn't advertise at least one version that supports the `via` query
+  parameter. The former was removed in Matrix 1.14.
+
+# 0.20.2
+
 Improvements:
 
 - Add support for the authorization server metadata endpoint, according to the
   latest draft of MSC2965.
+- Add the `guest_access_token` field to `account::register::v3::Request` to
+  allow a guest user to upgrade to a regular account.
+- Add the endpoints for peeking: `get_current_state` and `listen_to_new_events`.
+- Add the `reporting::report_user` endpoint to report users, according to Matrix
+  1.14.
 
 # 0.20.1
 

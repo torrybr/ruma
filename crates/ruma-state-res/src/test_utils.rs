@@ -9,8 +9,8 @@ use std::{
 
 use js_int::{int, uint};
 use ruma_common::{
-    event_id, room_id, user_id, EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, RoomId,
-    RoomVersionId, ServerSignatures, UserId,
+    event_id, room_id, room_version_rules::AuthorizationRules, user_id, EventId,
+    MilliSecondsSinceUnixEpoch, OwnedEventId, RoomId, ServerSignatures, UserId,
 };
 use ruma_events::{
     pdu::{EventHash, Pdu, RoomV3Pdu},
@@ -18,7 +18,7 @@ use ruma_events::{
         join_rules::{JoinRule, RoomJoinRulesEventContent},
         member::{MembershipState, RoomMemberEventContent},
     },
-    TimelineEventType,
+    StateEventType, TimelineEventType,
 };
 use serde_json::{
     json,
@@ -27,7 +27,9 @@ use serde_json::{
 use tracing::info;
 
 pub(crate) use self::event::PduEvent;
-use crate::{auth_types_for_event, Error, Event, EventTypeExt, Result, StateMap};
+use crate::{
+    auth_types_for_event, events::RoomCreateEvent, Error, Event, EventTypeExt, Result, StateMap,
+};
 
 static SERVER_TIMESTAMP: AtomicU64 = AtomicU64::new(0);
 
@@ -117,9 +119,10 @@ pub(crate) fn do_check(
                 })
                 .collect();
 
-            let resolved = crate::resolve(&RoomVersionId::V6, state_sets, auth_chain_sets, |id| {
-                event_map.get(id).cloned()
-            });
+            let resolved =
+                crate::resolve(&AuthorizationRules::V6, state_sets, auth_chain_sets, |id| {
+                    event_map.get(id).cloned()
+                });
             match resolved {
                 Ok(state) => state,
                 Err(e) => panic!("resolution for {node} failed: {e}"),
@@ -137,6 +140,7 @@ pub(crate) fn do_check(
             fake_event.sender(),
             fake_event.state_key(),
             fake_event.content(),
+            &AuthorizationRules::V6,
         )
         .unwrap();
 
@@ -208,10 +212,7 @@ pub(crate) struct TestStore<E: Event>(pub(crate) HashMap<OwnedEventId, Arc<E>>);
 
 impl<E: Event> TestStore<E> {
     pub(crate) fn get_event(&self, _: &RoomId, event_id: &EventId) -> Result<Arc<E>> {
-        self.0
-            .get(event_id)
-            .cloned()
-            .ok_or_else(|| Error::NotFound(format!("{event_id} not found")))
+        self.0.get(event_id).cloned().ok_or_else(|| Error::NotFound(event_id.to_owned()))
     }
 
     /// Returns a Vec of the related auth events to the given `event`.
@@ -438,6 +439,42 @@ where
     })
 }
 
+pub(crate) fn room_redaction_pdu_event<S>(
+    id: &str,
+    sender: &UserId,
+    redacts: OwnedEventId,
+    content: Box<RawJsonValue>,
+    auth_events: &[S],
+    prev_events: &[S],
+) -> Arc<PduEvent>
+where
+    S: AsRef<str>,
+{
+    let ts = SERVER_TIMESTAMP.fetch_add(1, SeqCst);
+    let id = if id.contains('$') { id.to_owned() } else { format!("${id}:foo") };
+    let auth_events = auth_events.iter().map(AsRef::as_ref).map(event_id).collect::<Vec<_>>();
+    let prev_events = prev_events.iter().map(AsRef::as_ref).map(event_id).collect::<Vec<_>>();
+
+    Arc::new(PduEvent {
+        event_id: id.try_into().unwrap(),
+        rest: Pdu::RoomV3Pdu(RoomV3Pdu {
+            room_id: room_id().to_owned(),
+            sender: sender.to_owned(),
+            origin_server_ts: MilliSecondsSinceUnixEpoch(ts.try_into().unwrap()),
+            state_key: None,
+            kind: TimelineEventType::RoomRedaction,
+            content,
+            redacts: Some(redacts),
+            unsigned: BTreeMap::new(),
+            auth_events,
+            prev_events,
+            depth: uint!(0),
+            hashes: EventHash::new("".to_owned()),
+            signatures: ServerSignatures::default(),
+        }),
+    })
+}
+
 // all graphs start with these input events
 #[allow(non_snake_case)]
 pub(crate) fn INITIAL_EVENTS() -> HashMap<OwnedEventId, Arc<PduEvent>> {
@@ -649,4 +686,81 @@ pub(crate) mod event {
         #[serde(flatten)]
         pub(crate) rest: Pdu,
     }
+}
+
+pub(crate) fn init_subscriber() -> tracing::dispatcher::DefaultGuard {
+    tracing::subscriber::set_default(tracing_subscriber::fmt().with_test_writer().finish())
+}
+
+/// Wrapper around a state map.
+pub(crate) struct TestStateMap(HashMap<StateEventType, HashMap<String, Arc<PduEvent>>>);
+
+impl TestStateMap {
+    /// Construct a `TestStateMap` from the given event map.
+    pub(crate) fn new(events: &HashMap<OwnedEventId, Arc<PduEvent>>) -> Self {
+        let mut state_map: HashMap<StateEventType, HashMap<String, Arc<PduEvent>>> = HashMap::new();
+
+        for event in events.values() {
+            let event_type = StateEventType::from(event.event_type().to_string());
+
+            state_map
+                .entry(event_type)
+                .or_default()
+                .insert(event.state_key().unwrap().to_owned(), event.clone());
+        }
+
+        TestStateMap(state_map)
+    }
+
+    /// Get the event with the given event type and state key.
+    pub(crate) fn get(
+        &self,
+        event_type: &StateEventType,
+        state_key: &str,
+    ) -> Option<&Arc<PduEvent>> {
+        self.0.get(event_type)?.get(state_key)
+    }
+
+    /// A function to get a state event from this map.
+    pub(crate) fn fetch_state_fn<'a>(
+        &'a self,
+    ) -> impl Fn(&StateEventType, &str) -> Option<&'a Arc<PduEvent>> + Copy {
+        |event_type: &StateEventType, state_key: &str| self.get(event_type, state_key)
+    }
+
+    /// The `m.room.create` event contained in this map.
+    ///
+    /// Panics if there is no `m.room.create` event in this map.
+    pub(crate) fn room_create_event(&self) -> RoomCreateEvent<&Arc<PduEvent>> {
+        RoomCreateEvent::new(self.get(&StateEventType::RoomCreate, "").unwrap())
+    }
+}
+
+/// Create an `m.room.third_party_invite` event with the given sender.
+pub(crate) fn room_third_party_invite(sender: &UserId) -> Arc<PduEvent> {
+    let content = json!({
+        "display_name": "o...@g...",
+        "key_validity_url": "https://identity.local/_matrix/identity/v2/pubkey/isvalid",
+        "public_key": "Gb9ECWmEzf6FQbrBZ9w7lshQhqowtrbLDFw4rXAxZuE",
+        "public_keys": [
+            {
+                "key_validity_url": "https://identity.local/_matrix/identity/v2/pubkey/isvalid",
+                "public_key": "Gb9ECWmEzf6FQbrBZ9w7lshQhqowtrbLDFw4rXAxZuE"
+            },
+            {
+                "key_validity_url": "https://identity.local/_matrix/identity/v2/pubkey/ephemeral/isvalid",
+                "public_key": "Kxdvv7lo0O6JVI7yimFgmYPfpLGnctcpYjuypP5zx/c"
+            }
+        ]
+    });
+
+    to_pdu_event(
+        "THIRDPARTY",
+        sender,
+        TimelineEventType::RoomThirdPartyInvite,
+        Some("somerandomtoken"),
+        to_raw_json_value(&content).unwrap(),
+        &["CREATE", "IJR", "IPOWER"],
+        &["IPOWER"],
+    )
 }

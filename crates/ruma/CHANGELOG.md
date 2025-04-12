@@ -1,5 +1,25 @@
 # [unreleased]
 
+- The deprecated global `compat` cargo feature was removed. The `compat-*` cargo
+  features need to be enabled individually.
+- The `unstable-unspecified` cargo feature was removed.
+- ruma-client is not reexported by ruma anymore, it lives as its own separate
+  crate. All the corresponding features were removed.
+- ruma-server-util was merged into ruma-federation-api. The corresponding
+  feature was removed. `XMatrix` is available in the
+  `api::federation::authentication` module.
+- Bump MSRV to 1.82
+
+# 0.12.2
+
+Please refer to the changelogs of:
+
+- ruma-common 0.15.2
+- ruma-signatures 0.17.1
+- ruma-events 0.30.2
+- ruma-client-api 0.20.2
+- ruma-federation-api 0.11.1
+
 # 0.12.1
 
 Please refer to the changelogs of:

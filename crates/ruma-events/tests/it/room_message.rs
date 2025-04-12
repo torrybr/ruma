@@ -1,12 +1,14 @@
-use std::{borrow::Cow, collections::BTreeSet};
+use std::borrow::Cow;
 
 use assert_matches2::assert_matches;
 use js_int::uint;
 use ruma_common::{
-    mxc_uri, owned_event_id, owned_room_id, owned_user_id, room_id,
+    mxc_uri, owned_event_id, owned_room_id, owned_user_id,
     serde::{Base64, Raw},
     user_id, MilliSecondsSinceUnixEpoch, OwnedDeviceId,
 };
+#[cfg(feature = "unstable-msc4274")]
+use ruma_events::room::message::{GalleryItemType, GalleryMessageEventContent};
 use ruma_events::{
     key::verification::VerificationMethod,
     room::{
@@ -19,7 +21,7 @@ use ruma_events::{
         },
         EncryptedFileInit, JsonWebKeyInit, MediaSource,
     },
-    AnySyncTimelineEvent, EventContent, Mentions, MessageLikeUnsigned, RawExt,
+    EventContent, Mentions, MessageLikeUnsigned, RawExt,
 };
 use serde_json::{
     from_value as from_json_value, json, to_value as to_json_value, Value as JsonValue,
@@ -303,155 +305,6 @@ fn content_deserialization_failure() {
 }
 
 #[test]
-fn escape_tags_in_plain_reply_body() {
-    let first_message = OriginalRoomMessageEvent {
-        content: RoomMessageEventContent::text_plain("Usage: cp <source> <destination>"),
-        event_id: owned_event_id!("$143273582443PhrSn:example.org"),
-        origin_server_ts: MilliSecondsSinceUnixEpoch(uint!(10_000)),
-        room_id: owned_room_id!("!testroomid:example.org"),
-        sender: owned_user_id!("@user:example.org"),
-        unsigned: MessageLikeUnsigned::default(),
-    };
-    let second_message = RoomMessageEventContent::text_plain("Usage: rm <path>").make_reply_to(
-        &first_message,
-        ForwardThread::Yes,
-        AddMentions::No,
-    );
-    assert_matches!(second_message.mentions, None);
-
-    assert_matches!(
-        first_message.content.msgtype,
-        MessageType::Text(TextMessageEventContent { body, formatted: None, .. })
-    );
-    assert_eq!(body, "Usage: cp <source> <destination>");
-
-    assert_matches!(
-        second_message.msgtype,
-        MessageType::Text(TextMessageEventContent { body, formatted, .. })
-    );
-    assert_eq!(
-        body,
-        "\
-        > <@user:example.org> Usage: cp <source> <destination>\n\
-        \n\
-        Usage: rm <path>\
-        "
-    );
-    let formatted = formatted.unwrap();
-    assert_eq!(
-        formatted.body,
-        "\
-        <mx-reply>\
-            <blockquote>\
-                <a href=\"https://matrix.to/#/!testroomid:example.org/$143273582443PhrSn:example.org\">In reply to</a> \
-                <a href=\"https://matrix.to/#/@user:example.org\">@user:example.org</a>\
-                <br>\
-                Usage: cp &lt;source&gt; &lt;destination&gt;\
-            </blockquote>\
-        </mx-reply>\
-        Usage: rm &lt;path&gt;\
-        "
-    );
-}
-
-#[test]
-#[cfg(feature = "html")]
-fn reply_sanitize() {
-    let first_message = OriginalRoomMessageEvent {
-        content: RoomMessageEventContent::text_html(
-            "# This is the first message",
-            "<h1>This is the first message</h1>",
-        ),
-        event_id: owned_event_id!("$143273582443PhrSn:example.org"),
-        origin_server_ts: MilliSecondsSinceUnixEpoch(uint!(10_000)),
-        room_id: owned_room_id!("!testroomid:example.org"),
-        sender: owned_user_id!("@user:example.org"),
-        unsigned: MessageLikeUnsigned::default(),
-    };
-    let second_message = OriginalRoomMessageEvent {
-        content: RoomMessageEventContent::text_html(
-            "This is the _second_ message",
-            "This is the <em>second</em> message",
-        )
-        .make_reply_to(&first_message, ForwardThread::Yes, AddMentions::No),
-        event_id: owned_event_id!("$143273582443PhrSn:example.org"),
-        origin_server_ts: MilliSecondsSinceUnixEpoch(uint!(10_000)),
-        room_id: owned_room_id!("!testroomid:example.org"),
-        sender: owned_user_id!("@user:example.org"),
-        unsigned: MessageLikeUnsigned::default(),
-    };
-    let final_reply = RoomMessageEventContent::text_html(
-        "This is **my** reply",
-        "This is <strong>my</strong> reply",
-    )
-    .make_reply_to(&second_message, ForwardThread::Yes, AddMentions::No);
-
-    assert_matches!(
-        first_message.content.msgtype,
-        MessageType::Text(TextMessageEventContent { body, formatted, .. })
-    );
-    assert_eq!(body, "# This is the first message");
-    let formatted = formatted.unwrap();
-    assert_eq!(formatted.body, "<h1>This is the first message</h1>");
-
-    assert_matches!(
-        second_message.content.msgtype,
-        MessageType::Text(TextMessageEventContent { body, formatted, .. })
-    );
-    assert_eq!(
-        body,
-        "\
-        > <@user:example.org> # This is the first message\n\
-        \n\
-        This is the _second_ message\
-        "
-    );
-    let formatted = formatted.unwrap();
-    assert_eq!(
-        formatted.body,
-        "\
-        <mx-reply>\
-            <blockquote>\
-                <a href=\"https://matrix.to/#/!testroomid:example.org/$143273582443PhrSn:example.org\">In reply to</a> \
-                <a href=\"https://matrix.to/#/@user:example.org\">@user:example.org</a>\
-                <br>\
-                <h1>This is the first message</h1>\
-            </blockquote>\
-        </mx-reply>\
-        This is the <em>second</em> message\
-        "
-    );
-
-    assert_matches!(
-        final_reply.msgtype,
-        MessageType::Text(TextMessageEventContent { body, formatted, .. })
-    );
-    assert_eq!(
-        body,
-        "\
-        > <@user:example.org> This is the _second_ message\n\
-        \n\
-        This is **my** reply\
-        "
-    );
-    let formatted = formatted.unwrap();
-    assert_eq!(
-        formatted.body,
-        "\
-        <mx-reply>\
-            <blockquote>\
-                <a href=\"https://matrix.to/#/!testroomid:example.org/$143273582443PhrSn:example.org\">In reply to</a> \
-                <a href=\"https://matrix.to/#/@user:example.org\">@user:example.org</a>\
-                <br>\
-                This is the <em>second</em> message\
-            </blockquote>\
-        </mx-reply>\
-        This is <strong>my</strong> reply\
-        "
-    );
-}
-
-#[test]
 fn reply_thread_fallback() {
     let thread_root = OriginalRoomMessageEvent {
         content: RoomMessageEventContent::text_plain("Thread root"),
@@ -569,216 +422,7 @@ fn reply_add_mentions() {
 }
 
 #[test]
-fn reply_to_raw() {
-    let room_id = room_id!("!roomid:notareal.hs");
-    let event_id = owned_event_id!("$143273582443PhrSn");
-
-    let original_message: Raw<AnySyncTimelineEvent> = from_json_value(json!({
-        "content": {
-            "body": "Hello, World!",
-            "msgtype": "m.text",
-        },
-        "event_id": event_id,
-        "origin_server_ts": 134_829_848,
-        "sender": "@user:notareal.hs",
-        "type": "m.room.message",
-    }))
-    .unwrap();
-
-    let reply = RoomMessageEventContent::text_html(
-        "This is **my** reply",
-        "This is <strong>my</strong> reply",
-    )
-    .make_reply_to_raw(
-        &original_message,
-        event_id.clone(),
-        room_id,
-        ForwardThread::Yes,
-        AddMentions::No,
-    );
-
-    assert_matches!(reply.relates_to, Some(Relation::Reply { in_reply_to }));
-    assert_eq!(in_reply_to.event_id, event_id);
-
-    assert_matches!(reply.msgtype, MessageType::Text(text_msg));
-    assert_eq!(
-        text_msg.body,
-        "> <@user:notareal.hs> Hello, World!\n\
-         \n\
-         This is **my** reply"
-    );
-    assert_eq!(
-        text_msg.formatted.unwrap().body,
-        "<mx-reply>\
-            <blockquote>\
-                <a href=\"https://matrix.to/#/!roomid:notareal.hs/$143273582443PhrSn\">In reply to</a> \
-                <a href=\"https://matrix.to/#/@user:notareal.hs\">@user:notareal.hs</a>\
-                <br>\
-                Hello, World!\
-            </blockquote>\
-        </mx-reply>\
-        This is <strong>my</strong> reply"
-    );
-}
-
-#[test]
-fn reply_to_raw_no_body() {
-    let room_id = room_id!("!roomid:notareal.hs");
-    let event_id = owned_event_id!("$143273582443PhrSn");
-
-    let original_message: Raw<AnySyncTimelineEvent> = from_json_value(json!({
-        "content": {},
-        "event_id": event_id,
-        "origin_server_ts": 134_829_848,
-        "sender": "@user:notareal.hs",
-        "type": "m.room.message",
-    }))
-    .unwrap();
-
-    let reply = RoomMessageEventContent::text_html(
-        "This is **my** reply",
-        "This is <strong>my</strong> reply",
-    )
-    .make_reply_to_raw(
-        &original_message,
-        event_id.clone(),
-        room_id,
-        ForwardThread::Yes,
-        AddMentions::No,
-    );
-
-    assert_matches!(reply.relates_to, Some(Relation::Reply { in_reply_to }));
-    assert_eq!(in_reply_to.event_id, event_id);
-
-    assert_matches!(reply.msgtype, MessageType::Text(text_msg));
-    assert_eq!(text_msg.body, "This is **my** reply");
-    assert_eq!(text_msg.formatted.unwrap().body, "This is <strong>my</strong> reply");
-}
-
-#[test]
-fn reply_to_raw_no_sender() {
-    let room_id = room_id!("!roomid:notareal.hs");
-    let event_id = owned_event_id!("$143273582443PhrSn");
-
-    let original_message: Raw<AnySyncTimelineEvent> = from_json_value(json!({
-        "content": {
-            "body": "Hello, World!",
-            "msgtype": "m.text",
-        },
-        "event_id": event_id,
-        "origin_server_ts": 134_829_848,
-        "type": "m.room.message",
-    }))
-    .unwrap();
-
-    let reply = RoomMessageEventContent::text_html(
-        "This is **my** reply",
-        "This is <strong>my</strong> reply",
-    )
-    .make_reply_to_raw(
-        &original_message,
-        event_id.clone(),
-        room_id,
-        ForwardThread::Yes,
-        AddMentions::No,
-    );
-
-    assert_matches!(reply.relates_to, Some(Relation::Reply { in_reply_to }));
-    assert_eq!(in_reply_to.event_id, event_id);
-
-    assert_matches!(reply.msgtype, MessageType::Text(text_msg));
-    assert_eq!(text_msg.body, "This is **my** reply");
-    assert_eq!(text_msg.formatted.unwrap().body, "This is <strong>my</strong> reply");
-}
-
-#[test]
-fn reply_to_raw_forward_thread() {
-    let room_id = room_id!("!roomid:notareal.hs");
-    let event_id = owned_event_id!("$143273582443PhrSn");
-
-    let original_message: Raw<AnySyncTimelineEvent> = from_json_value(json!({
-        "content": {
-            "m.relates_to": {
-                "rel_type": "m.thread",
-                "event_id": "$threadroot",
-                "m.in_reply_to": {
-                    "event_id": "$repliedto",
-                },
-            },
-        },
-        "event_id": event_id,
-        "origin_server_ts": 134_829_848,
-        "sender": "@user:notareal.hs",
-        "type": "m.room.message",
-    }))
-    .unwrap();
-
-    let reply = RoomMessageEventContent::text_html(
-        "This is **my** reply",
-        "This is <strong>my</strong> reply",
-    )
-    .make_reply_to_raw(
-        &original_message,
-        event_id.clone(),
-        room_id,
-        ForwardThread::Yes,
-        AddMentions::No,
-    );
-
-    assert_matches!(reply.relates_to, Some(Relation::Thread(thread)));
-    assert_eq!(thread.event_id, "$threadroot");
-    assert_eq!(thread.in_reply_to.unwrap().event_id, event_id);
-
-    assert_matches!(reply.msgtype, MessageType::Text(text_msg));
-    assert_eq!(text_msg.body, "This is **my** reply");
-    assert_eq!(text_msg.formatted.unwrap().body, "This is <strong>my</strong> reply");
-}
-
-#[test]
-fn reply_to_raw_add_mentions() {
-    let room_id = room_id!("!roomid:notareal.hs");
-    let event_id = owned_event_id!("$143273582443PhrSn");
-
-    let user_id = owned_user_id!("@user:notareal.hs");
-    let other_user_id = owned_user_id!("@other_user:notareal.hs");
-
-    let original_message: Raw<AnySyncTimelineEvent> = from_json_value(json!({
-        "content": {
-            "m.mentions": {
-                "user_ids": [other_user_id],
-            },
-        },
-        "event_id": event_id,
-        "origin_server_ts": 134_829_848,
-        "sender": user_id,
-        "type": "m.room.message",
-    }))
-    .unwrap();
-
-    let reply = RoomMessageEventContent::text_html(
-        "This is **my** reply",
-        "This is <strong>my</strong> reply",
-    )
-    .make_reply_to_raw(
-        &original_message,
-        event_id.clone(),
-        room_id,
-        ForwardThread::Yes,
-        AddMentions::Yes,
-    );
-
-    assert_matches!(reply.relates_to, Some(Relation::Reply { in_reply_to }));
-    assert_eq!(in_reply_to.event_id, event_id);
-
-    assert_matches!(reply.msgtype, MessageType::Text(text_msg));
-    assert_eq!(text_msg.body, "This is **my** reply");
-    assert_eq!(text_msg.formatted.unwrap().body, "This is <strong>my</strong> reply");
-
-    assert_eq!(reply.mentions.unwrap().user_ids, BTreeSet::from([user_id]));
-}
-
-#[test]
-fn make_replacement_no_reply() {
+fn make_replacement() {
     let content = RoomMessageEventContent::text_html(
         "This is _an edited_ message.",
         "This is <em>an edited</em> message.",
@@ -798,7 +442,7 @@ fn make_replacement_no_reply() {
     let original_message: OriginalSyncRoomMessageEvent =
         from_json_value(original_message_json).unwrap();
 
-    let content = content.make_replacement(&original_message, None);
+    let content = content.make_replacement(&original_message);
 
     assert_matches!(
         content.msgtype,
@@ -807,71 +451,6 @@ fn make_replacement_no_reply() {
     assert_eq!(body, "* This is _an edited_ message.");
     let formatted = formatted.unwrap();
     assert_eq!(formatted.body, "* This is <em>an edited</em> message.");
-    assert_matches!(content.mentions, None);
-}
-
-#[test]
-fn make_replacement_with_reply() {
-    let replied_to_message = OriginalRoomMessageEvent {
-        content: RoomMessageEventContent::text_html(
-            "# This is the first message",
-            "<h1>This is the first message</h1>",
-        ),
-        event_id: owned_event_id!("$143273582443PhrSn:example.org"),
-        origin_server_ts: MilliSecondsSinceUnixEpoch(uint!(10_000)),
-        room_id: owned_room_id!("!testroomid:example.org"),
-        sender: owned_user_id!("@user:example.org"),
-        unsigned: MessageLikeUnsigned::default(),
-    };
-
-    let content = RoomMessageEventContent::text_html(
-        "This is _an edited_ reply.",
-        "This is <em>an edited</em> reply.",
-    );
-
-    let original_message_json = json!({
-        "content": {
-            "body": "Hello, World!",
-            "msgtype": "m.text",
-        },
-        "event_id": "$143273582443PhrSn",
-        "origin_server_ts": 134_829_848,
-        "room_id": "!roomid:notareal.hs",
-        "sender": "@user:notareal.hs",
-        "type": "m.room.message",
-    });
-    let original_message: OriginalSyncRoomMessageEvent =
-        from_json_value(original_message_json).unwrap();
-
-    let content = content.make_replacement(&original_message, Some(&replied_to_message));
-
-    assert_matches!(
-        content.msgtype,
-        MessageType::Text(TextMessageEventContent { body, formatted, .. })
-    );
-    assert_eq!(
-        body,
-        "\
-        > <@user:example.org> # This is the first message\n\
-        \n\
-        * This is _an edited_ reply.\
-        "
-    );
-    let formatted = formatted.unwrap();
-    assert_eq!(
-        formatted.body,
-        "\
-        <mx-reply>\
-            <blockquote>\
-                <a href=\"https://matrix.to/#/!testroomid:example.org/$143273582443PhrSn:example.org\">In reply to</a> \
-                <a href=\"https://matrix.to/#/@user:example.org\">@user:example.org</a>\
-                <br>\
-                <h1>This is the first message</h1>\
-            </blockquote>\
-        </mx-reply>\
-        * This is <em>an edited</em> reply.\
-        "
-    );
     assert_matches!(content.mentions, None);
 }
 
@@ -1020,6 +599,139 @@ fn file_msgtype_encrypted_content_deserialization() {
     assert_eq!(content.body, "Upload: my_file.txt");
     assert_matches!(content.source, MediaSource::Encrypted(encrypted_file));
     assert_eq!(encrypted_file.url, "mxc://notareal.hs/file");
+}
+
+#[test]
+#[cfg(feature = "unstable-msc4274")]
+fn gallery_msgtype_serialization_with_image() {
+    let message_event_content =
+        RoomMessageEventContent::new(MessageType::Gallery(GalleryMessageEventContent::new(
+            "My photos from [FOSDEM 2025](https://fosdem.org/2025/)".to_owned(),
+            Some(FormattedBody::html(
+                "My photos from <a href=\"https://fosdem.org/2025/\">FOSDEM 2025</a>",
+            )),
+            vec![GalleryItemType::Image(ImageMessageEventContent::plain(
+                "my_image.jpg".to_owned(),
+                mxc_uri!("mxc://notareal.hs/file").to_owned(),
+            ))],
+        )));
+
+    assert_eq!(
+        to_json_value(&message_event_content).unwrap(),
+        json!({
+            "body": "My photos from [FOSDEM 2025](https://fosdem.org/2025/)",
+            "formatted_body": "My photos from <a href=\"https://fosdem.org/2025/\">FOSDEM 2025</a>",
+            "format": "org.matrix.custom.html",
+            "itemtypes": [{
+                "body": "my_image.jpg",
+                "url": "mxc://notareal.hs/file",
+                "itemtype": "m.image",
+            }],
+            "msgtype": "dm.filament.gallery",
+        })
+    );
+}
+
+#[test]
+#[cfg(feature = "unstable-msc4274")]
+fn gallery_msgtype_deserialization_with_image() {
+    let json_data = json!({
+        "body": "My photos from [FOSDEM 2025](https://fosdem.org/2025/)",
+        "formatted_body": "My photos from <a href=\"https://fosdem.org/2025/\">FOSDEM 2025</a>",
+        "format": "org.matrix.custom.html",
+        "itemtypes": [{
+            "body": "my_image.jpg",
+            "url": "mxc://notareal.hs/file",
+            "itemtype": "m.image",
+        }],
+        "msgtype": "dm.filament.gallery",
+    });
+
+    let event_content = from_json_value::<RoomMessageEventContent>(json_data).unwrap();
+    assert_matches!(event_content.msgtype, MessageType::Gallery(content));
+    assert_eq!(content.body, "My photos from [FOSDEM 2025](https://fosdem.org/2025/)");
+    assert_eq!(
+        content.formatted.unwrap().body,
+        "My photos from <a href=\"https://fosdem.org/2025/\">FOSDEM 2025</a>"
+    );
+    assert_matches!(&content.itemtypes.len(), 1);
+    assert_matches!(&content.itemtypes.first().unwrap(), GalleryItemType::Image(content));
+    assert_eq!(content.body, "my_image.jpg");
+    assert_matches!(&content.source, MediaSource::Plain(url));
+    assert_eq!(url, "mxc://notareal.hs/file");
+    assert!(content.caption().is_none());
+}
+
+#[test]
+#[cfg(feature = "unstable-msc4274")]
+fn gallery_msgtype_serialization_with_custom_itemtype() {
+    let message_event_content =
+        RoomMessageEventContent::new(MessageType::Gallery(GalleryMessageEventContent::new(
+            "My photos from [FOSDEM 2025](https://fosdem.org/2025/)".to_owned(),
+            Some(FormattedBody::html(
+                "My photos from <a href=\"https://fosdem.org/2025/\">FOSDEM 2025</a>",
+            )),
+            vec![GalleryItemType::new(
+                "my_custom_itemtype",
+                "my message body".into(),
+                json_object! {
+                    "custom_field": "baba",
+                    "another_one": "abab",
+                },
+            )
+            .unwrap()],
+        )));
+
+    assert_eq!(
+        to_json_value(&message_event_content).unwrap(),
+        json!({
+            "body": "My photos from [FOSDEM 2025](https://fosdem.org/2025/)",
+            "formatted_body": "My photos from <a href=\"https://fosdem.org/2025/\">FOSDEM 2025</a>",
+            "format": "org.matrix.custom.html",
+            "itemtypes": [{
+                "body": "my message body",
+                "custom_field": "baba",
+                "another_one": "abab",
+                "itemtype": "my_custom_itemtype",
+            }],
+            "msgtype": "dm.filament.gallery",
+        })
+    );
+}
+
+#[test]
+#[cfg(feature = "unstable-msc4274")]
+fn gallery_msgtype_deserialization_with_custom_itemtype() {
+    let json_data = json!({
+        "body": "My photos from [FOSDEM 2025](https://fosdem.org/2025/)",
+        "formatted_body": "My photos from <a href=\"https://fosdem.org/2025/\">FOSDEM 2025</a>",
+        "format": "org.matrix.custom.html",
+        "itemtypes": [{
+            "body": "my message body",
+            "custom_field": "baba",
+            "another_one": "abab",
+            "itemtype": "my_custom_itemtype",
+        }],
+        "msgtype": "dm.filament.gallery",
+    });
+
+    let expected_json_data = json_object! {
+        "custom_field": "baba",
+        "another_one": "abab",
+    };
+
+    let event_content = from_json_value::<RoomMessageEventContent>(json_data).unwrap();
+    assert_matches!(event_content.msgtype, MessageType::Gallery(content));
+    assert_eq!(content.body, "My photos from [FOSDEM 2025](https://fosdem.org/2025/)");
+    assert_eq!(
+        content.formatted.unwrap().body,
+        "My photos from <a href=\"https://fosdem.org/2025/\">FOSDEM 2025</a>"
+    );
+    assert_matches!(&content.itemtypes.len(), 1);
+    let itemtype = content.itemtypes.first().unwrap();
+    assert_eq!(itemtype.itemtype(), "my_custom_itemtype");
+    assert_eq!(itemtype.body(), "my message body");
+    assert_eq!(itemtype.data(), Cow::Owned(expected_json_data));
 }
 
 #[test]
@@ -1253,7 +965,7 @@ fn add_mentions_then_make_replacement() {
         "This is <em>an edited</em> message.",
     );
     content = content.add_mentions(Mentions::with_user_ids(vec![alice.clone(), bob.clone()]));
-    content = content.make_replacement(&original_message, None);
+    content = content.make_replacement(&original_message);
 
     let mentions = content.mentions.unwrap();
     assert_eq!(mentions.user_ids, [bob.clone()].into());
@@ -1287,7 +999,7 @@ fn add_first_mentions_then_make_replacement() {
         "This is <em>an edited</em> message.",
     );
     content = content.add_mentions(Mentions::with_user_ids(vec![alice.clone(), bob.clone()]));
-    content = content.make_replacement(&original_message, None);
+    content = content.make_replacement(&original_message);
 
     let mentions = content.mentions.unwrap();
     assert_eq!(mentions.user_ids, [alice.clone(), bob.clone()].into());
@@ -1321,7 +1033,7 @@ fn make_replacement_then_add_mentions() {
         "This is _an edited_ message.",
         "This is <em>an edited</em> message.",
     );
-    content = content.make_replacement(&original_message, None);
+    content = content.make_replacement(&original_message);
     content = content.add_mentions(Mentions::with_user_ids(vec![alice.clone(), bob.clone()]));
 
     let mentions = content.mentions.unwrap();

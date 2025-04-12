@@ -9,8 +9,8 @@ use std::{
 };
 
 use ruma_common::{
-    MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedRoomId, OwnedUserId, RoomId, RoomVersionId,
-    UserId,
+    room_version_rules::AuthorizationRules, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedRoomId,
+    OwnedUserId, RoomId, RoomVersionId, UserId,
 };
 use ruma_events::{StateEventType, TimelineEventType};
 use ruma_state_res::{resolve, Event, StateMap};
@@ -183,7 +183,7 @@ fn test_resolve(paths: &[&str]) -> Snapshots {
         })
         .collect::<Vec<Vec<Pdu>>>();
 
-    let room_version = {
+    let room_version_id = {
         let first_pdu = pdu_batches
             .first()
             .expect("there should be at least one file of PDUs")
@@ -200,13 +200,14 @@ fn test_resolve(paths: &[&str]) -> Snapshots {
             .expect("the m.room.create PDU's content should be valid")
             .room_version
     };
+    let rules = room_version_id.rules().expect("room version should be supported").authorization;
 
     // Resolve PDUs in batches by file
     let mut pdus_by_id = HashMap::new();
     let mut batched_resolved_state = None;
     for pdus in &pdu_batches {
         batched_resolved_state = Some(
-            resolve_batch(&room_version, pdus, &mut pdus_by_id, &mut batched_resolved_state)
+            resolve_batch(&rules, pdus, &mut pdus_by_id, &mut batched_resolved_state)
                 .expect("batched state resolution step should succeed"),
         );
     }
@@ -215,7 +216,7 @@ fn test_resolve(paths: &[&str]) -> Snapshots {
 
     // Resolve all PDUs in a single step
     let atomic_resolved_state = resolve_batch(
-        &room_version,
+        &rules,
         pdu_batches.iter().flat_map(|x| x.iter()),
         &mut HashMap::new(),
         &mut None,
@@ -266,7 +267,7 @@ fn test_resolve(paths: &[&str]) -> Snapshots {
 ///
 /// # Arguments
 ///
-/// * `room_version`: The room's version.
+/// * `rules`: The rules of the room version.
 /// * `pdus`: An iterator of [`Pdu`]s to resolve, either alone or against the `prev_state`.
 /// * `pdus_by_id`: A map of [`OwnedEventId`]s to the [`Pdu`] with that ID.
 ///   * Should be empty for the first call.
@@ -275,7 +276,7 @@ fn test_resolve(paths: &[&str]) -> Snapshots {
 ///   * Should be `None` for the first call.
 ///   * Should not be mutated outside of this function.
 fn resolve_batch<'a, I, II>(
-    room_version: &RoomVersionId,
+    rules: &AuthorizationRules,
     pdus: II,
     pdus_by_id: &mut HashMap<OwnedEventId, Pdu>,
     prev_state: &mut Option<StateMap<OwnedEventId>>,
@@ -308,8 +309,7 @@ where
         auth_chain_sets.push(auth_events_dfs(&*pdus_by_id, pdu)?);
     }
 
-    resolve(room_version, &state_sets, auth_chain_sets, |x| pdus_by_id.get(x).cloned())
-        .map_err(Into::into)
+    resolve(rules, &state_sets, auth_chain_sets, |x| pdus_by_id.get(x).cloned()).map_err(Into::into)
 }
 
 /// Depth-first search for the `auth_events` of the given PDU.

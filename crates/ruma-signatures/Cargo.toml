@@ -7,15 +7,13 @@ license = "MIT"
 name = "ruma-signatures"
 readme = "README.md"
 repository = "https://github.com/ruma/ruma"
-version = "0.17.0"
+version = "0.17.1"
 edition = "2021"
 
 [package.metadata.docs.rs]
 all-features = true
 
 [features]
-# Allow extra characters in signature IDs not allowed in the specification.
-compat-signature-id = []
 ring-compat = ["dep:subslice"]
 
 [dependencies]

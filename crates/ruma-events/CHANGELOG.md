@@ -1,9 +1,43 @@
 # [unreleased]
 
+Breaking changes:
+
+- Reply fallbacks are not generated anymore, according to MSC2781 / Matrix 1.13.
+  As a result, the following methods of `RoomMessageEventContent(WithoutRelation)`
+  were simplified:
+  - `make_reply_to` and `make_reply_to_raw` have been merged into
+    `make_reply_to`. It takes a `ReplyMetadata`, that can be virtually
+    constructed from any event and includes built-in conversions for room
+    message events.
+  - `make_for_thread` also takes a `ReplyMetadata` instead of a room message
+    event.
+  - `make_replacement` does not take the replied-to message anymore.
+- `RoomThirdPartyInviteEventContent` uses `IdentityServerBase64PublicKey`
+  instead of `Base64` for the `public_key` fields, to avoid deserialization
+  errors when public keys encoded using URL-safe base64 are encountered.
+- The `msgtype` is no longer serialized in `AudioMessageEventContent`, `EmoteMessageEventContent`,
+  `FileMessageEventContent`, `ImageMessageEventContent`, `LocationMessageEventContent`,
+  `NoticeMessageEventContent`, `ServerNoticeMessageEventContent`, `TextMessageEventContent`,
+  `VideoMessageEventContent` and `KeyVerificationRequestEventContent`. Instead the `msgtype`
+  is now serialized on the variants of `MessageType`.
+- `RedactContent::redact()` and `FullStateEventContent::redact()` take a
+  `RedactionRules` instead of `RoomVersionId`. This avoids undefined behavior
+  for unknown room versions. 
+
+# 0.30.2
+
+Bug fixes:
+
+- `RelationType::Replacement` is now properly encoded/decoded as `m.replace` instead of
+  `m.replacement`.
+
 Improvements:
 
 - Add `RECOMMENDED_STRIPPED_STATE_EVENT_TYPES` constant for servers to filter/get recommended
   stripped state events.
+- Add unstable support for gallery `msgtype` as per MSC4274.
+- Invalid Objects inside the `allow` array of `Restricted` are now ignored, meaning that
+  `JoinRules` will not fail to deserialize if there are invalid restricted join conditions
 
 # 0.30.1
 

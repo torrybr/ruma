@@ -10,11 +10,13 @@ use crate::{cmd, Metadata, Result, NIGHTLY};
 
 mod reexport_features;
 mod spec_links;
+mod unused_features;
 
 use reexport_features::check_reexport_features;
 use spec_links::check_spec_links;
+use unused_features::check_unused_features;
 
-const MSRV: &str = "1.75";
+const MSRV: &str = "1.82";
 
 #[derive(Args)]
 pub struct CiArgs {
@@ -38,8 +40,6 @@ pub enum CiCmd {
     Stable,
     /// Check all crates with all features (stable)
     StableAll,
-    /// Check ruma-client without default features (stable)
-    StableClient,
     /// Check ruma-common with only the required features (stable)
     StableCommon,
     /// Run all tests with almost all features (stable)
@@ -72,6 +72,8 @@ pub enum CiCmd {
     ReexportFeatures,
     /// Check typos
     Typos,
+    /// Check whether there are unused cargo features (lint)
+    UnusedFeatures,
 }
 
 /// Task to run CI tests.
@@ -108,7 +110,6 @@ impl CiTask {
             Some(CiCmd::MsrvOwnedIdArc) => self.msrv_owned_id_arc()?,
             Some(CiCmd::Stable) => self.stable()?,
             Some(CiCmd::StableAll) => self.stable_all()?,
-            Some(CiCmd::StableClient) => self.stable_client()?,
             Some(CiCmd::StableCommon) => self.stable_common()?,
             Some(CiCmd::TestAll) => self.test_all()?,
             Some(CiCmd::TestCompat) => self.test_compat()?,
@@ -125,6 +126,7 @@ impl CiTask {
             Some(CiCmd::SpecLinks) => check_spec_links(&self.project_root().join("crates"))?,
             Some(CiCmd::ReexportFeatures) => check_reexport_features(&self.project_metadata)?,
             Some(CiCmd::Typos) => self.typos()?,
+            Some(CiCmd::UnusedFeatures) => check_unused_features(&self.sh, &self.project_metadata)?,
             None => {
                 self.msrv()
                     .and(self.stable())
@@ -170,7 +172,6 @@ impl CiTask {
     /// Run all the tasks that use the stable version.
     fn stable(&self) -> Result<()> {
         self.stable_all()?;
-        self.stable_client()?;
         self.stable_common()?;
         self.test_all()?;
         self.test_doc()?;
@@ -188,13 +189,6 @@ impl CiTask {
         )
         .run()
         .map_err(Into::into)
-    }
-
-    /// Check ruma-client without default features with the stable version.
-    fn stable_client(&self) -> Result<()> {
-        cmd!(&self.sh, "rustup run stable cargo check -p ruma-client --no-default-features")
-            .run()
-            .map_err(Into::into)
     }
 
     /// Check ruma-common with onjy the required features with the stable version.
@@ -218,7 +212,7 @@ impl CiTask {
     /// Run tests on all crates with almost all features and the compat features with the stable
     /// version.
     fn test_compat(&self) -> Result<()> {
-        cmd!(&self.sh, "rustup run stable cargo test --tests --features __ci,compat")
+        cmd!(&self.sh, "rustup run stable cargo test --tests --features __ci,__compat")
             .run()
             .map_err(Into::into)
     }
@@ -306,7 +300,7 @@ impl CiTask {
             &self.sh,
             "
             rustup run {NIGHTLY} cargo clippy --target wasm32-unknown-unknown -p ruma --features
-                __unstable-mscs,api,canonical-json,client-api,events,html-matrix,identity-service-api,js,markdown,rand,signatures,unstable-unspecified -- -D warnings
+                __unstable-mscs,api,canonical-json,client-api,events,html-matrix,identity-service-api,js,markdown,rand,signatures -- -D warnings
             "
         )
         .env("CLIPPY_CONF_DIR", ".wasm")
@@ -320,7 +314,7 @@ impl CiTask {
             &self.sh,
             "
             rustup run {NIGHTLY} cargo clippy
-                --workspace --all-targets --features=__ci,compat -- -D warnings
+                --workspace --all-targets --features=__ci,__compat -- -D warnings
             "
         )
         .run()
@@ -335,8 +329,10 @@ impl CiTask {
         let spec_links_res = check_spec_links(&self.project_root().join("crates"));
         // Check that all cargo features of sub-crates can be enabled from ruma.
         let reexport_features_res = check_reexport_features(&self.project_metadata);
+        // Check whether there are unused cargo features.
+        let unused_features_res = check_unused_features(&self.sh, &self.project_metadata);
 
-        dependencies_res.and(spec_links_res).and(reexport_features_res)
+        dependencies_res.and(spec_links_res).and(reexport_features_res).and(unused_features_res)
     }
 
     /// Check the sorting of dependencies with the nightly version.

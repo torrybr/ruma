@@ -1,5 +1,64 @@
 # [unreleased]
 
+Breaking changes:
+
+- `UserId` parsing and deserialization are now compatible with all non-compliant
+  user IDs in the wild by default, due to a clarification in the spec.
+  - The `compat-user-id` cargo feature was removed.
+  - `UserId::validate_historical()` and `UserId::validate_strict()` allow to
+    check for spec compliance.
+  - The `(owned_)user_id!` macros always validate against the strict grammar in
+    the spec, regardless of the compat features that are enabled.
+- `(owned_)room_id!` macros disallow the `NUL` byte, due to a clarification in
+  the spec.
+- `(owned_)room_alias_id!` macros disallow the `NUL` byte for the localpart, due
+  to a clarification in the spec.
+- `MatrixVersion` does not implement `Display` anymore as it is not correct to
+  convert `V1_0` to a string. Instead `MatrixVersion::as_str()` can be used that
+  only returns `None` for that same variant.
+- `MatrixVersion::(into/from)_parts` are no longer exposed as public methods.
+  They were usually used to sort `MatrixVersion`s, now the `PartialOrd` and
+  `Ord` implementations can be used instead.
+- `Protocol` and `ProtocolInit` are generic on the protocol instance type.
+- Add support for endpoints that only allow appservices to call them, renaming
+  `AppserviceToken` to `AppserviceTokenOptional`, with the new variant taking
+  `AppserviceToken`'s place.
+- The `redact*` functions in `canonical_json` take `RedactionRules` instead of
+  `RoomVersionId`. This avoids undefined behavior for unknown room versions.
+
+Improvements:
+
+- `ProtocolInstance` has an `instance_id` field, due to a clarification in the
+  spec.
+- The `unstable-unspecified` cargo feature was removed.
+- Add `AnyKeyName` as a helper type to use `KeyId` APIs without validating the
+  key name.
+- Add `IdentityServerBase64PublicKey` as a helper type to decode identity server
+  public keys encoded using standard or URL-safe base64.
+- `RoomVersion` was imported from ruma-state-res and renamed to
+  `RoomVersionRules`, along with the following changes:
+  - `RoomVersionRules::new()` was removed and replaced by
+    `RoomVersionId::rules()`.
+  - The `RoomDisposition` enum was renamed to `RoomVersionDisposition`.
+  - The `event_format` field was renamed to `event_id_format` and the
+    `EventFormat` enum was renamed to `EventIdFormat`.
+  - The tweaks in the authorization rules were extracted into the
+    `AuthorizationRules` struct, which is available in the `authorization` field
+    of `RoomVersionRules`.
+  - The `special_case_aliases_auth` field was renamed to
+    `special_case_room_aliases`.
+  - The `strict_canonicaljson` field was renamed to `strict_canonical_json`.
+  - The `extra_redaction_checks` field was renamed to
+    `special_case_room_redaction`.
+  - The `allow_knocking` field was renamed to `knocking`.
+  - The `restricted_join_rules` field was renamed to `restricted_join_rule`.
+  - `RedactionRules` was added under the `redaction` field.
+  - `SignaturesRules` was added under the `signatures` field.
+- `RoomVersionId` has an `MSC2870` variant for the `org.matrix.msc2870` room
+  version defined in MSC2870.
+
+# 0.15.2
+
 Bug fixes:
 
 - `MatrixVersion::V1_0` now also matches Identity Service API versions r0.2.0 to
@@ -14,6 +73,9 @@ Improvements:
 - Implement `PartialEqAsRefStr`, `Eq`, `PartialOrdAsRefStr`, `OrdAsRefStr` for
   `ruma_common::media::Method`.
 - `DeviceId::new()` generates a string with 10 chars instead of 8.
+- Add `ignore_invalid_vec_items`, to assist deserialization of `Vec`s, where
+  invalid items should be ignored.
+- Add `MatrixVersion::V1_14`.
 
 # 0.15.1
 

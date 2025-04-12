@@ -1,6 +1,6 @@
 use std::{
     cmp::Ordering,
-    fmt::{self, Display, Write},
+    fmt::{Display, Write},
     str::FromStr,
 };
 
@@ -79,7 +79,16 @@ impl Metadata {
                 None => None,
             },
 
-            AuthScheme::AppserviceToken => match access_token.get_required_for_appservice() {
+            AuthScheme::AppserviceToken => {
+                let token = access_token
+                    .get_required_for_appservice()
+                    .ok_or(IntoHttpError::NeedsAuthentication)?;
+
+                Some((header::AUTHORIZATION, format!("Bearer {token}").try_into()?))
+            }
+
+            AuthScheme::AppserviceTokenOptional => match access_token.get_required_for_appservice()
+            {
                 Some(token) => Some((header::AUTHORIZATION, format!("Bearer {token}").try_into()?)),
                 None => None,
             },
@@ -570,6 +579,11 @@ pub enum MatrixVersion {
     ///
     /// See <https://spec.matrix.org/v1.13/>.
     V1_13,
+
+    /// Version 1.14 of the Matrix specification, released in Q1 2025.
+    ///
+    /// See <https://spec.matrix.org/v1.14/>.
+    V1_14,
 }
 
 impl TryFrom<&str> for MatrixVersion {
@@ -597,6 +611,7 @@ impl TryFrom<&str> for MatrixVersion {
             "v1.11" => V1_11,
             "v1.12" => V1_12,
             "v1.13" => V1_13,
+            "v1.14" => V1_14,
             _ => return Err(UnknownVersionError),
         })
     }
@@ -624,8 +639,36 @@ impl MatrixVersion {
         self >= other
     }
 
+    /// Get a string representation of this Matrix version.
+    ///
+    /// This is the string that can be found in the response to one of the `GET /versions`
+    /// endpoints. Parsing this string will give the same variant.
+    ///
+    /// Returns `None` for [`MatrixVersion::V1_0`] because it can match several per-API versions.
+    pub const fn as_str(self) -> Option<&'static str> {
+        let string = match self {
+            MatrixVersion::V1_0 => return None,
+            MatrixVersion::V1_1 => "v1.1",
+            MatrixVersion::V1_2 => "v1.2",
+            MatrixVersion::V1_3 => "v1.3",
+            MatrixVersion::V1_4 => "v1.4",
+            MatrixVersion::V1_5 => "v1.5",
+            MatrixVersion::V1_6 => "v1.6",
+            MatrixVersion::V1_7 => "v1.7",
+            MatrixVersion::V1_8 => "v1.8",
+            MatrixVersion::V1_9 => "v1.9",
+            MatrixVersion::V1_10 => "v1.10",
+            MatrixVersion::V1_11 => "v1.11",
+            MatrixVersion::V1_12 => "v1.12",
+            MatrixVersion::V1_13 => "v1.13",
+            MatrixVersion::V1_14 => "v1.14",
+        };
+
+        Some(string)
+    }
+
     /// Decompose the Matrix version into its major and minor number.
-    pub const fn into_parts(self) -> (u8, u8) {
+    const fn into_parts(self) -> (u8, u8) {
         match self {
             MatrixVersion::V1_0 => (1, 0),
             MatrixVersion::V1_1 => (1, 1),
@@ -641,11 +684,12 @@ impl MatrixVersion {
             MatrixVersion::V1_11 => (1, 11),
             MatrixVersion::V1_12 => (1, 12),
             MatrixVersion::V1_13 => (1, 13),
+            MatrixVersion::V1_14 => (1, 14),
         }
     }
 
     /// Try to turn a pair of (major, minor) version components back into a `MatrixVersion`.
-    pub const fn from_parts(major: u8, minor: u8) -> Result<Self, UnknownVersionError> {
+    const fn from_parts(major: u8, minor: u8) -> Result<Self, UnknownVersionError> {
         match (major, minor) {
             (1, 0) => Ok(MatrixVersion::V1_0),
             (1, 1) => Ok(MatrixVersion::V1_1),
@@ -661,6 +705,7 @@ impl MatrixVersion {
             (1, 11) => Ok(MatrixVersion::V1_11),
             (1, 12) => Ok(MatrixVersion::V1_12),
             (1, 13) => Ok(MatrixVersion::V1_13),
+            (1, 14) => Ok(MatrixVersion::V1_14),
             _ => Err(UnknownVersionError),
         }
     }
@@ -762,14 +807,9 @@ impl MatrixVersion {
             | MatrixVersion::V1_12
             // <https://spec.matrix.org/v1.13/rooms/#complete-list-of-room-versions>
             | MatrixVersion::V1_13 => RoomVersionId::V10,
+            // <https://spec.matrix.org/v1.14/rooms/#complete-list-of-room-versions>
+            | MatrixVersion::V1_14 => RoomVersionId::V11,
         }
-    }
-}
-
-impl Display for MatrixVersion {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let (major, minor) = self.into_parts();
-        f.write_str(&format!("v{major}.{minor}"))
     }
 }
 
@@ -898,5 +938,16 @@ mod tests {
         const LIT: MatrixVersion = MatrixVersion::from_lit("1.0");
 
         assert_eq!(LIT, V1_0);
+    }
+
+    #[test]
+    fn parse_as_str_sanity() {
+        let version = MatrixVersion::try_from("r0.5.0").unwrap();
+        assert_eq!(version, V1_0);
+        assert_eq!(version.as_str(), None);
+
+        let version = MatrixVersion::try_from("v1.1").unwrap();
+        assert_eq!(version, V1_1);
+        assert_eq!(version.as_str(), Some("v1.1"));
     }
 }
